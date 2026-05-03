@@ -1,0 +1,348 @@
+{
+  // ============================================================
+  // contracts.json — canonical wire schema for interpretit
+  // ============================================================
+  // This file is the single source of truth for every data shape
+  // that crosses a service boundary (browser ↔ gateway, gateway ↔
+  // analysis, gateway ↔ db, analysis ↔ db). Frontend TS types and
+  // backend Pydantic models MUST be derived from this file. When
+  // service code disagrees with this file, service code is wrong.
+  //
+  // Notation:
+  //   "uuid"            -> RFC 4122 string
+  //   "iso8601"         -> RFC 3339 timestamp string (UTC, "Z")
+  //   "float 0-1"       -> JSON number, inclusive bounds
+  //   "integer 1-10"    -> JSON integer, inclusive bounds
+  //   "a | b | c"       -> string enum (literal values)
+  //   trailing "?"      -> optional field (may be omitted or null)
+  // ============================================================
+
+  "_meta": {
+    "version": "1.0.0",
+    "generated_at": "2026-05-14T00:00:00Z",
+    "description": "Canonical wire contracts for the Interpretation Training Platform.",
+    "shapes": {
+      "AudioSubmission":        "Browser→Gateway WS audio header frame (precedes binary blob).",
+      "AnalysisRequest":        "Gateway→Analysis arq job payload.",
+      "ProsodyResult":          "Analysis→Gateway fast-path result (prosody/cognitive load).",
+      "SemanticResult":         "Analysis→Gateway full-path result (LLM evaluation).",
+      "MasteryUpdate":          "Gateway-internal; emitted when an attempt mutates mastery.",
+      "Learner":                "Persistent learner record.",
+      "Session":                "Persistent session record.",
+      "Segment":                "Reusable source-language unit available for training.",
+      "Attempt":                "One user interpretation of one segment.",
+      "MasteryScore":           "Per-learner, per-domain mastery state.",
+      "WSEnvelope":             "Outer JSON frame envelope: {type, ts, payload}.",
+      "WSMessage.*":            "Concrete WS control / result payloads (see below)."
+    }
+  },
+
+  // ============================================================
+  // Core domain shapes (existing — keep stable)
+  // ============================================================
+
+  // Browser → Gateway. Sent as a JSON envelope (WSMessage.AudioSubmitHeader)
+  // IMMEDIATELY before a single binary frame carrying the Opus blob.
+  // The pair (header, blob) is one logical submission; the gateway
+  // correlates them by the most-recent header on that connection.
+  "AudioSubmission": {
+    "segment_id":   "uuid",
+    "attempt_id":   "uuid",                        // client-generated; gateway echoes back
+    "audio_format": "opus/webm",                   // currently the only supported value
+    "audio_blob":   "binary",                      // delivered in the following binary frame
+    "byte_length":  "integer",                     // size hint for gateway pre-allocation
+    "duration_ms":  "integer",                     // recorder-reported duration
+    "recorded_at":  "iso8601"
+  },
+
+  // Gateway → Analysis (arq job payload, via Redis).
+  // The SAME payload is enqueued to two distinct arq queues
+  // (`prosody`, `semantic`) so both pipelines see identical inputs.
+  "AnalysisRequest": {
+    "attempt_id":       "uuid",
+    "segment_id":       "uuid",
+    "session_id":       "uuid",
+    "learner_id":       "uuid",
+    "audio_path":       "string (MinIO key)",
+    "source_text":      "string",
+    "source_lang":      "ko | en",
+    "target_lang":      "ko | en",
+    "register":         "formal-military | formal-diplomatic | informal",
+    "domain":           "string",                  // e.g. "logistics", "diplomatic", "intel-brief"
+    "difficulty_level": "integer 1-10",
+    "enqueued_at":      "iso8601"
+  },
+
+  // Analysis → Gateway. Fast path. Target latency ≤2s.
+  "ProsodyResult": {
+    "attempt_id":              "uuid",
+    "pause_count":             "integer",
+    "filler_count":            "integer",
+    "mean_wpm":                "float",
+    "silence_ratio":           "float 0-1",
+    "cognitive_load_estimate": "low | moderate | high | overloaded",
+    "feedback_audio_path":     "string (MinIO key)",
+    "computed_at":             "iso8601",
+    "latency_ms":              "integer"           // end-to-end inside analysis service
+  },
+
+  // Analysis → Gateway. Full path. Target latency ≤12s.
+  "SemanticResult": {
+    "attempt_id":             "uuid",
+    "transcript":             "string",
+    "reference_translation":  "string",
+    "acceptable_paraphrases": ["string"],
+    "errors": [
+      {
+        "type":        "semantic_drift | lexical_gap | register_error | omission | tense_shift | precision_loss",
+        "source_span": "string",
+        "user_span":   "string | null",
+        "severity":    "minor | moderate | critical",
+        "explanation": "string"
+      }
+    ],
+    "overall_score":       "float 0-1",
+    "feedback_text":       "string",
+    "feedback_audio_path": "string (MinIO key)",
+    "followup_exercise": {
+      "type":              "repeat | rephrase | drill_term | contextual_qa",
+      "prompt_text":       "string",
+      "prompt_audio_path": "string (MinIO key)"
+    },
+    "computed_at": "iso8601",
+    "latency_ms":  "integer"
+  },
+
+  // Difficulty ladder update — emitted whenever an attempt closes.
+  "MasteryUpdate": {
+    "learner_id":       "uuid",
+    "segment_id":       "uuid",
+    "domain":           "string",
+    "old_mastery":      "float 0-1",
+    "new_mastery":      "float 0-1",
+    "difficulty_delta": "integer",                 // -2..+2 typical
+    "triggered_by":     "prosody | semantic | both",
+    "computed_at":      "iso8601"
+  },
+
+  // ============================================================
+  // Persistent entities (mirrors the DB schema — see ARCHITECTURE.md)
+  // ============================================================
+
+  "Learner": {
+    "id":           "uuid",
+    "display_name": "string",
+    "primary_lang": "ko | en",
+    "created_at":   "iso8601"
+  },
+
+  "Session": {
+    "id":           "uuid",
+    "learner_id":   "uuid",
+    "state":        "idle | listening | recording | analyzing | feedback | next_segment | complete",
+    "domain":       "string",
+    "target_lang":  "ko | en",
+    "source_lang":  "ko | en",
+    "started_at":   "iso8601",
+    "completed_at": "iso8601 | null",
+    "segment_count":"integer",
+    "current_segment_id": "uuid | null"
+  },
+
+  "Segment": {
+    "id":               "uuid",
+    "source_text":      "string",                  // stored for review only; never sent during (session)
+    "source_lang":      "ko | en",
+    "target_lang":      "ko | en",
+    "register":         "formal-military | formal-diplomatic | informal",
+    "domain":           "string",
+    "difficulty_level": "integer 1-10",
+    "audio_path":       "string (MinIO key)",     // pre-rendered TTS playback
+    "embedding_id":     "uuid | null",            // FK to paraphrase_embeddings (pgvector)
+    "created_at":       "iso8601"
+  },
+
+  "Attempt": {
+    "id":              "uuid",
+    "session_id":      "uuid",
+    "segment_id":      "uuid",
+    "learner_id":      "uuid",
+    "audio_path":      "string (MinIO key)",
+    "recorded_at":     "iso8601",
+    "prosody_result":  "ProsodyResult | null",
+    "semantic_result": "SemanticResult | null",
+    "closed_at":       "iso8601 | null"
+  },
+
+  "MasteryScore": {
+    "learner_id":      "uuid",
+    "domain":          "string",
+    "mastery":         "float 0-1",
+    "attempts_count":  "integer",
+    "last_attempt_at": "iso8601",
+    "updated_at":      "iso8601"
+  },
+
+  // ============================================================
+  // REST: request / response bodies
+  // ============================================================
+
+  "REST.PostSessionRequest": {
+    "learner_id":  "uuid",
+    "domain":      "string",
+    "source_lang": "ko | en",
+    "target_lang": "ko | en"
+  },
+  "REST.PostSessionResponse":  "Session",
+  "REST.GetSessionResponse":   "Session",
+  "REST.CompleteSessionResponse": {
+    "session":          "Session",
+    "attempts_count":   "integer",
+    "mean_score":       "float 0-1",
+    "mastery_changes":  ["MasteryUpdate"]
+  },
+  "REST.GetLearnerResponse":  "Learner",
+  "REST.GetLearnerMasteryResponse": {
+    "learner_id": "uuid",
+    "scores":     ["MasteryScore"]
+  },
+  "REST.HealthResponse": {
+    "status":        "ok | degraded | down",
+    "version":       "string",
+    "checked_at":    "iso8601",
+    "dependencies": {
+      "postgres": "ok | down",
+      "redis":    "ok | down",
+      "minio":    "ok | down"
+    }
+  },
+
+  // ============================================================
+  // WebSocket protocol
+  // ============================================================
+  // All control + result frames are JSON of the shape:
+  //   { "type": "<message_type>", "ts": "<iso8601>", "payload": {...} }
+  //
+  // Binary frames carry ONLY raw Opus/WebM bytes and are always
+  // preceded by exactly one `audio.submit_header` envelope on the
+  // same connection. There is no other use of binary frames.
+
+  "WSEnvelope": {
+    "type":    "string",
+    "ts":      "iso8601",
+    "payload": "object"
+  },
+
+  // ---- Client → Server ----
+
+  "WSMessage.SessionStart": {
+    "type": "session.start",
+    "payload": {
+      "session_id": "uuid"
+    }
+  },
+
+  "WSMessage.SegmentRequest": {
+    "type": "segment.request",
+    "payload": {
+      "session_id": "uuid"
+    }
+  },
+
+  // Client signals it is about to record (UI delay timer started).
+  "WSMessage.RecordingBegin": {
+    "type": "recording.begin",
+    "payload": {
+      "session_id": "uuid",
+      "segment_id": "uuid",
+      "attempt_id": "uuid"
+    }
+  },
+
+  // Header that precedes the binary Opus blob.
+  "WSMessage.AudioSubmitHeader": {
+    "type":    "audio.submit_header",
+    "payload": "AudioSubmission"
+  },
+
+  // Client requests session teardown.
+  "WSMessage.SessionComplete": {
+    "type": "session.complete",
+    "payload": {
+      "session_id": "uuid"
+    }
+  },
+
+  // ---- Server → Client ----
+
+  // Server tells client which segment to play next + signed playback URL.
+  "WSMessage.SegmentPlay": {
+    "type": "segment.play",
+    "payload": {
+      "segment_id":       "uuid",
+      "audio_url":        "string (signed MinIO URL)",
+      "duration_ms":      "integer",
+      "difficulty_level": "integer 1-10",
+      "delay_ms":         "integer"                // working-memory delay before record allowed
+    }
+  },
+
+  // Acknowledges header + blob receipt; tells client analysis is queued.
+  "WSMessage.AudioAck": {
+    "type": "audio.ack",
+    "payload": {
+      "attempt_id": "uuid",
+      "audio_path": "string (MinIO key)"
+    }
+  },
+
+  // Fast path result.
+  "WSMessage.ProsodyResult": {
+    "type":    "prosody.result",
+    "payload": "ProsodyResult"
+  },
+
+  // Full path result.
+  "WSMessage.SemanticResult": {
+    "type":    "semantic.result",
+    "payload": "SemanticResult"
+  },
+
+  // Emitted after both pipelines close on a given attempt.
+  "WSMessage.MasteryUpdate": {
+    "type":    "mastery.update",
+    "payload": "MasteryUpdate"
+  },
+
+  // Server confirms session terminal state.
+  "WSMessage.SessionCompleteAck": {
+    "type": "session.complete_ack",
+    "payload": {
+      "session_id":     "uuid",
+      "attempts_count": "integer",
+      "mean_score":     "float 0-1"
+    }
+  },
+
+  // State-machine transitions broadcast to client for UI sync.
+  "WSMessage.StateChange": {
+    "type": "state.change",
+    "payload": {
+      "session_id": "uuid",
+      "from":       "idle | listening | recording | analyzing | feedback | next_segment | complete",
+      "to":         "idle | listening | recording | analyzing | feedback | next_segment | complete",
+      "reason":     "string"
+    }
+  },
+
+  // Generic error frame. `code` is stable; `detail` is human-readable.
+  "WSMessage.Error": {
+    "type": "error",
+    "payload": {
+      "code":       "invalid_state | invalid_payload | upload_failed | analysis_failed | internal",
+      "detail":     "string",
+      "attempt_id": "uuid | null",
+      "session_id": "uuid | null"
+    }
+  }
+}
