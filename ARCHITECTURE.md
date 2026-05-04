@@ -258,7 +258,7 @@ delta = +1 if new_mastery > old_mastery and new_mastery >= 0.80
 
 A `MasteryUpdate` is emitted with `triggered_by = both` after both
 results land. If only one result arrives within the per-attempt timeout
-(default 30s), `triggered_by` reflects which path closed and the missing
+(default 20s — see ADR-001 in this doc's history), `triggered_by` reflects which path closed and the missing
 score defaults to `old_mastery` (neutral contribution).
 
 ### 6.2 Next-segment selection
