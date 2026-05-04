@@ -16,7 +16,7 @@ following additions/clarifications:
 ├── contracts/
 │   ├── contracts.json             # canonical schema (jsonc)
 │   └── README.md                  # generation rules
-├── frontend/                      # Next.js 15, React 19
+├── frontend/                      # Next.js 16, React 19
 │   ├── app/
 │   │   ├── (session)/             # audio-only — no text
 │   │   └── (review)/              # post-session transcript review

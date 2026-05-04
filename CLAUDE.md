@@ -12,13 +12,13 @@ Two FastAPI services behind a shared gateway, one Next.js frontend.
   difficulty ladder, learner mastery model. Async-native, IO-bound.
 - **Analysis service** (`services/analysis/`): ASR transcription, LLM evaluation,
   prosody extraction. CPU-heavy, runs behind a Redis (arq) task queue.
-- **Frontend** (`frontend/`): Next.js 15 App Router + React 19. Two route groups:
+- **Frontend** (`frontend/`): Next.js 16 App Router + React 19. Two route groups:
   `(session)` for audio-only training mode, `(review)` for post-session transcripts.
 
 ## Stack
 | Layer              | Tool                                    |
 |--------------------|-----------------------------------------|
-| Frontend           | Next.js 15, React 19, Web Audio API     |
+| Frontend           | Next.js 16, React 19, Web Audio API     |
 | Backend            | FastAPI (Python 3.12), Pydantic v2      |
 | Audio transport    | WebSockets, binary Opus blobs           |
 | ASR                | faster-whisper (large-v3)               |
