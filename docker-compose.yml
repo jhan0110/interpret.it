@@ -1,0 +1,140 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: interpretit
+      POSTGRES_PASSWORD: interpretit
+      POSTGRES_DB: interpretit
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U interpretit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  gateway:
+    build:
+      context: ./services/gateway
+    environment:
+      DATABASE_URL: postgresql+asyncpg://interpretit:interpretit@postgres:5432/interpretit
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: interpretit
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  analysis:
+    build:
+      context: ./services/analysis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: interpretit
+      GATEWAY_RPC_URL: http://gateway:8000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      USE_MOCKS: ${USE_MOCKS:-1}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - redis
+      - minio
+      - gateway
+
+  arq-prosody:
+    build:
+      context: ./services/analysis
+    command: ["arq", "app.worker.WorkerSettings"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: interpretit
+      GATEWAY_RPC_URL: http://gateway:8000
+      ARQ_QUEUE_NAME: prosody
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      USE_MOCKS: ${USE_MOCKS:-1}
+    depends_on:
+      - redis
+      - minio
+      - gateway
+
+  arq-semantic:
+    build:
+      context: ./services/analysis
+    command: ["arq", "app.worker.WorkerSettings"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: interpretit
+      GATEWAY_RPC_URL: http://gateway:8000
+      ARQ_QUEUE_NAME: semantic
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      USE_MOCKS: ${USE_MOCKS:-1}
+    depends_on:
+      - redis
+      - minio
+      - gateway
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      NEXT_PUBLIC_WS_BASE_URL: ws://localhost:8000
+      GATEWAY_URL: http://gateway:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+
+volumes:
+  postgres_data:
+  minio_data:
