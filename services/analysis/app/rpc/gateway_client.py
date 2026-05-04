@@ -13,7 +13,7 @@ import os
 
 import redis.asyncio as aioredis
 
-from app.contracts.models import ProsodyResult
+from app.contracts.models import ProsodyResult, SemanticResult
 
 _REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 _GATEWAY_RPC_URL = os.getenv("GATEWAY_RPC_URL", "http://localhost:8000")
@@ -21,33 +21,37 @@ _RESULT_TTL_S = 300
 
 
 async def push_prosody_result(result: ProsodyResult) -> None:
-    """
-    Deliver ProsodyResult to Gateway.
-
-    Strategy (in order):
-    1. Try HTTP POST to Gateway internal RPC endpoint.
-    2. Always write to Redis result queue as fallback/supplement.
-    """
-    await _write_to_redis(result)
-    await _post_to_gateway(result)
+    """Deliver ProsodyResult to Gateway (HTTP), with Redis fallback."""
+    await _write_redis(f"prosody_result:{result.attempt_id}", result.model_dump_json())
+    await _post(
+        f"{_GATEWAY_RPC_URL}/internal/prosody_result",
+        result.model_dump_json(),
+    )
 
 
-async def _write_to_redis(result: ProsodyResult) -> None:
+async def push_semantic_result(result: SemanticResult) -> None:
+    """Deliver SemanticResult to Gateway (HTTP), with Redis fallback."""
+    await _write_redis(f"semantic_result:{result.attempt_id}", result.model_dump_json())
+    await _post(
+        f"{_GATEWAY_RPC_URL}/internal/semantic_result",
+        result.model_dump_json(),
+    )
+
+
+async def _write_redis(key: str, payload: str) -> None:
     client = aioredis.from_url(_REDIS_URL, decode_responses=True)
     try:
-        key = f"prosody_result:{result.attempt_id}"
-        await client.set(key, result.model_dump_json(), ex=_RESULT_TTL_S)
+        await client.set(key, payload, ex=_RESULT_TTL_S)
     finally:
         await client.aclose()
 
 
-async def _post_to_gateway(result: ProsodyResult) -> None:
+async def _post(url: str, payload: str) -> None:
     import httpx
 
-    url = f"{_GATEWAY_RPC_URL}/internal/prosody_result"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(url, content=result.model_dump_json(), headers={"Content-Type": "application/json"})
+            await client.post(url, content=payload, headers={"Content-Type": "application/json"})
     except httpx.HTTPError:
-        # Redis fallback already written; gateway will pick up on next poll.
+        # Redis fallback already written; gateway can recover from there.
         pass
