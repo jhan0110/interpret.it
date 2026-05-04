@@ -57,6 +57,63 @@ async def post_session(body: PostSessionRequest) -> Session:
     return _row_to_session(row)
 
 
+@router.get("/sessions/{session_id}/attempts")
+async def get_session_attempts(session_id: UUID) -> list[dict]:
+    """Read-only: list attempts with their results for review.
+
+    Returns minimal Attempt-like dicts; not in REST.* contract because
+    review-page rendering predates that schema and we don't expose
+    audio paths externally yet.
+    """
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        rows = (
+            await db.execute(
+                select(AttemptRow).where(AttemptRow.session_id == session_id).order_by(AttemptRow.recorded_at)
+            )
+        ).scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "session_id": str(r.session_id),
+            "segment_id": str(r.segment_id),
+            "learner_id": str(r.learner_id),
+            "audio_path": r.audio_path,
+            "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
+            "prosody_result": r.prosody_result,
+            "semantic_result": r.semantic_result,
+            "closed_at": r.closed_at.isoformat() if r.closed_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/sessions/{session_id}/summary", response_model=CompleteSessionResponse)
+async def get_session_summary(session_id: UUID) -> CompleteSessionResponse:
+    """Read-only summary — does NOT mutate state (unlike POST /complete)."""
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        row = (await db.execute(select(SessionRow).where(SessionRow.id == session_id))).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        attempts = (
+            await db.execute(select(AttemptRow).where(AttemptRow.session_id == session_id))
+        ).scalars().all()
+    attempts_count = len(attempts)
+    scores = [
+        (a.semantic_result or {}).get("overall_score", 0.0)
+        for a in attempts
+        if a.semantic_result
+    ]
+    mean = sum(scores) / len(scores) if scores else 0.0
+    return CompleteSessionResponse(
+        session=_row_to_session(row),
+        attempts_count=attempts_count,
+        mean_score=max(0.0, min(1.0, mean)),
+        mastery_changes=[],
+    )
+
+
 @router.get("/sessions/{session_id}", response_model=Session)
 async def get_session(session_id: UUID) -> Session:
     sm = sessionmaker_factory()
