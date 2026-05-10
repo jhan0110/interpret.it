@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Annotated, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 BoundedFloat = Annotated[float, Field(ge=0.0, le=1.0)]
 DifficultyLevel = Annotated[int, Field(ge=1, le=10)]
@@ -40,6 +40,10 @@ class AudioSubmission(BaseModel):
 
 
 class AnalysisRequest(BaseModel):
+    # `register` is a normal field but pydantic warns about attr-shadowing on
+    # some versions; the explicit ConfigDict silences that.
+    model_config = ConfigDict(protected_namespaces=())
+
     attempt_id: UUID
     segment_id: UUID
     session_id: UUID
