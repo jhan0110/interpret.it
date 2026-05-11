@@ -2,20 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Literal
 
-import anthropic
-
-_client: anthropic.Anthropic | None = None
-
-
-def _get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    return _client
+from ..llm.client import structured_generate
 
 
 @dataclass
@@ -76,33 +66,18 @@ def generate_reference(
 
     Uses tool_use to enforce structured output — the model MUST call emit_reference.
     """
-    client = _get_client()
     system = _SYSTEM_PROMPT.format(
         source_lang=source_lang,
         target_lang=target_lang,
         register=register,
         domain=domain,
     )
-    response = client.messages.create(
-        model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
-        max_tokens=1024,
+    inp = structured_generate(
         system=system,
-        tools=[_REFERENCE_TOOL],
-        tool_choice={"type": "any"},
-        messages=[
-            {
-                "role": "user",
-                "content": f"Source text ({source_lang}):\n\n{source_text}",
-            }
-        ],
+        user=f"Source text ({source_lang}):\n\n{source_text}",
+        tool=_REFERENCE_TOOL,
     )
-
-    for block in response.content:
-        if block.type == "tool_use" and block.name == "emit_reference":
-            inp = block.input
-            return ReferenceBundle(
-                canonical=inp["canonical_translation"],
-                paraphrases=inp["acceptable_paraphrases"],
-            )
-
-    raise RuntimeError(f"Claude did not call emit_reference. Stop reason: {response.stop_reason}")
+    return ReferenceBundle(
+        canonical=inp["canonical_translation"],
+        paraphrases=inp["acceptable_paraphrases"],
+    )

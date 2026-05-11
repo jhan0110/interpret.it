@@ -2,23 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from uuid import UUID
 
-import anthropic
-
 from ..contracts.models import FollowupExercise, SemanticResult, SemanticResultError
+from ..llm.client import structured_generate
 from ..reference.generate import ReferenceBundle
-
-_client: anthropic.Anthropic | None = None
-
-
-def _get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    return _client
 
 
 _EVAL_TOOL = {
@@ -132,8 +121,6 @@ def evaluate(
     The feedback_audio_path and followup_audio_path are MinIO keys for TTS audio
     that must be generated before calling this function.
     """
-    client = _get_client()
-
     system = _SYSTEM_PROMPT.format(
         register=register,
         domain=domain,
@@ -156,49 +143,42 @@ Learner's interpretation ({target_lang}):
 {user_transcript}
 """
 
-    response = client.messages.create(
-        model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
-        max_tokens=2048,
+    inp = structured_generate(
         system=system,
-        tools=[_EVAL_TOOL],
-        tool_choice={"type": "any"},
-        messages=[{"role": "user", "content": user_message}],
+        user=user_message,
+        tool=_EVAL_TOOL,
+        max_tokens=2048,
     )
 
-    for block in response.content:
-        if block.type == "tool_use" and block.name == "emit_evaluation":
-            inp = block.input
-            now = datetime.now(timezone.utc)
-            latency_ms = int((now - start_time).total_seconds() * 1000)
+    now = datetime.now(timezone.utc)
+    latency_ms = int((now - start_time).total_seconds() * 1000)
 
-            errors = [
-                SemanticResultError(
-                    type=e["type"],
-                    source_span=e["source_span"],
-                    user_span=e.get("user_span"),
-                    severity=e["severity"],
-                    explanation=e["explanation"],
-                )
-                for e in inp["errors"]
-            ]
-            followup_raw = inp["followup_exercise"]
-            followup = FollowupExercise(
-                type=followup_raw["type"],
-                prompt_text=followup_raw["prompt_text"],
-                prompt_audio_path=followup_audio_path,
-            )
-            return SemanticResult(
-                attempt_id=attempt_id,
-                transcript=user_transcript,
-                reference_translation=reference.canonical,
-                acceptable_paraphrases=reference.paraphrases,
-                errors=errors,
-                overall_score=float(inp["overall_score"]),
-                feedback_text=inp["feedback_text"],
-                feedback_audio_path=feedback_audio_path,
-                followup_exercise=followup,
-                computed_at=now,
-                latency_ms=latency_ms,
-            )
-
-    raise RuntimeError(f"Claude did not call emit_evaluation. Stop reason: {response.stop_reason}")
+    errors = [
+        SemanticResultError(
+            type=e["type"],
+            source_span=e["source_span"],
+            user_span=e.get("user_span"),
+            severity=e["severity"],
+            explanation=e["explanation"],
+        )
+        for e in inp["errors"]
+    ]
+    followup_raw = inp["followup_exercise"]
+    followup = FollowupExercise(
+        type=followup_raw["type"],
+        prompt_text=followup_raw["prompt_text"],
+        prompt_audio_path=followup_audio_path,
+    )
+    return SemanticResult(
+        attempt_id=attempt_id,
+        transcript=user_transcript,
+        reference_translation=reference.canonical,
+        acceptable_paraphrases=reference.paraphrases,
+        errors=errors,
+        overall_score=float(inp["overall_score"]),
+        feedback_text=inp["feedback_text"],
+        feedback_audio_path=feedback_audio_path,
+        followup_exercise=followup,
+        computed_at=now,
+        latency_ms=latency_ms,
+    )
