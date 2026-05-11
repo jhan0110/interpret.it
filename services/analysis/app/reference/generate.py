@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Literal
+
+from pydantic import BaseModel
 
 from ..llm.client import structured_generate
 
 
-@dataclass
-class ReferenceBundle:
+class ReferenceBundle(BaseModel):
     canonical: str
     paraphrases: list[str]  # 3–5 acceptable alternatives
 

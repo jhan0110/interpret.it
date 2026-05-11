@@ -26,7 +26,7 @@ from app.contracts.models import AnalysisRequest, FollowupExercise, SemanticResu
 from app.evaluation.evaluate import evaluate
 from app.mocks.handlers import get_mock_semantic_result
 from app.prosody.pipeline import run_prosody_pipeline
-from app.reference.generate import generate_reference
+from app.reference.generate import ReferenceBundle, generate_reference
 from app.rpc.gateway_client import push_prosody_result, push_semantic_result
 from app.tts.elevenlabs_tts import generate_feedback_audio
 
@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 _PER_ATTEMPT_TIMEOUT_S = 20
 _USE_MOCKS = os.getenv("USE_MOCKS") == "1"
+_REFERENCE_CACHE_TTL = 86400  # 24 hours
 
 
 def _redis_settings() -> RedisSettings:
@@ -78,6 +79,30 @@ async def run_prosody(_ctx: dict, payload: dict) -> dict:
     return await asyncio.wait_for(_run(), timeout=_PER_ATTEMPT_TIMEOUT_S)
 
 
+async def _get_cached_reference(redis, segment_id: str) -> ReferenceBundle | None:
+    """Fetch a cached ReferenceBundle from Redis. Returns None on miss."""
+    raw = await redis.get(f"reference:{segment_id}")
+    if raw is None:
+        return None
+    try:
+        return ReferenceBundle.model_validate_json(raw)
+    except Exception:
+        log.warning("reference cache deserialization failed for segment=%s", segment_id)
+        return None
+
+
+async def _set_cached_reference(redis, segment_id: str, bundle: ReferenceBundle) -> None:
+    """Store a ReferenceBundle in Redis with TTL."""
+    await redis.set(f"reference:{segment_id}", bundle.model_dump_json(), ex=_REFERENCE_CACHE_TTL)
+
+
+def _warm_whisper() -> None:
+    """Load the Whisper model into the process cache so job 1 pays no penalty."""
+    from app.asr.transcribe import _get_model
+
+    _get_model()
+
+
 async def run_semantic(_ctx: dict, payload: dict) -> dict:
     """Semantic full-path job. Returns the serialized SemanticResult."""
     req = AnalysisRequest.model_validate(payload)
@@ -88,19 +113,37 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
         await push_semantic_result(result)
         return result.model_dump(mode="json")
 
+    redis = _ctx["redis"]
+
     async def _run() -> dict:
         from app.asr.transcribe import transcribe
 
         start = datetime.now(UTC)
-        transcript = await asyncio.to_thread(transcribe, req.audio_path, req.target_lang)
-        reference = await asyncio.to_thread(
-            generate_reference,
-            req.source_text,
-            req.source_lang,
-            req.target_lang,
-            req.register,
-            req.domain,
-        )
+
+        # Mitigation 2: check reference cache before launching the Claude call.
+        cached_ref = await _get_cached_reference(redis, str(req.segment_id))
+
+        if cached_ref is not None:
+            log.info("reference cache hit segment=%s", req.segment_id)
+            # Only need to transcribe; skip generate_reference entirely.
+            transcript = await asyncio.to_thread(transcribe, req.audio_path, req.target_lang)
+            reference = cached_ref
+        else:
+            # Mitigation 1: run ASR and reference generation concurrently.
+            transcript, reference = await asyncio.gather(
+                asyncio.to_thread(transcribe, req.audio_path, req.target_lang),
+                asyncio.to_thread(
+                    generate_reference,
+                    req.source_text,
+                    req.source_lang,
+                    req.target_lang,
+                    req.register,
+                    req.domain,
+                ),
+            )
+            # Mitigation 2: populate cache for future attempts on the same segment.
+            await _set_cached_reference(redis, str(req.segment_id), reference)
+
         feedback_audio_key = "placeholder/semantic_feedback.mp3"
         followup_audio_key = "placeholder/semantic_followup.mp3"
         try:
@@ -156,8 +199,22 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
         return fallback.model_dump(mode="json")
 
 
+async def on_startup(ctx: dict) -> None:
+    """Pre-warm the Whisper model so job 1 doesn't pay the load cost."""
+    if _USE_MOCKS:
+        log.info("USE_MOCKS=1 — skipping Whisper warm-up")
+        return
+    try:
+        log.info("warming Whisper model...")
+        await asyncio.to_thread(_warm_whisper)
+        log.info("Whisper model warm-up complete")
+    except Exception:
+        log.exception("Whisper warm-up failed; worker will continue without pre-warmed model")
+
+
 class WorkerSettings:
     functions = [run_prosody, run_semantic]
+    on_startup = on_startup
     redis_settings = _redis_settings()
     queue_name = os.getenv("ARQ_QUEUE_NAME", "prosody")
     max_jobs = int(os.getenv("ARQ_MAX_JOBS", "4"))
