@@ -16,6 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml ./
 RUN pip install --upgrade pip && pip install .
 
+# spaCy language models (referenced in CLAUDE.md; required for Phase 5+).
+RUN python -m spacy download ko_core_news_lg && \
+    python -m spacy download en_core_web_trf
+
 COPY app ./app
 
 EXPOSE 8001

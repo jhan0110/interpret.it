@@ -27,7 +27,7 @@ from app.evaluation.evaluate import evaluate
 from app.mocks.handlers import get_mock_semantic_result
 from app.prosody.pipeline import run_prosody_pipeline
 from app.reference.generate import ReferenceBundle, generate_reference
-from app.rpc.gateway_client import push_prosody_result, push_semantic_result
+from app.rpc.gateway_client import push_prosody_result, push_semantic_result, push_segment_embeddings
 from app.tts.elevenlabs_tts import generate_feedback_audio
 
 log = logging.getLogger(__name__)
@@ -143,6 +143,17 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
             )
             # Mitigation 2: populate cache for future attempts on the same segment.
             await _set_cached_reference(redis, str(req.segment_id), reference)
+
+            # Generate and push paraphrase embeddings on cache miss (first attempt
+            # on a segment).  Fire-and-forget: failure here does not block evaluation.
+            try:
+                from app.embeddings.generate import embed_texts
+
+                texts = [req.source_text] + list(reference.paraphrases)
+                embeddings = await asyncio.to_thread(embed_texts, texts)
+                await push_segment_embeddings(req.segment_id, texts, embeddings)
+            except Exception:
+                log.warning("embedding generation failed for segment=%s", req.segment_id)
 
         feedback_audio_key = "placeholder/semantic_feedback.mp3"
         followup_audio_key = "placeholder/semantic_followup.mp3"

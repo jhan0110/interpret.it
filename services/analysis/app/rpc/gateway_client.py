@@ -13,6 +13,8 @@ import os
 
 import redis.asyncio as aioredis
 
+from uuid import UUID
+
 from app.contracts.models import ProsodyResult, SemanticResult
 
 _REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -36,6 +38,25 @@ async def push_semantic_result(result: SemanticResult) -> None:
         f"{_GATEWAY_RPC_URL}/internal/semantic_result",
         result.model_dump_json(),
     )
+
+
+async def push_segment_embeddings(
+    segment_id: UUID,
+    paraphrases: list[str],
+    embeddings: list[list[float]],
+) -> None:
+    """POST paraphrase embeddings to the gateway to persist in paraphrase_embeddings."""
+    import json
+
+    body = json.dumps(
+        {
+            "paraphrases": [
+                {"text": text, "embedding": emb}
+                for text, emb in zip(paraphrases, embeddings, strict=False)
+            ]
+        }
+    )
+    await _post(f"{_GATEWAY_RPC_URL}/internal/segments/{segment_id}/embeddings", body)
 
 
 async def _write_redis(key: str, payload: str) -> None:
