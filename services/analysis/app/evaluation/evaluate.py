@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from datetime import datetime, timezone
 from uuid import UUID
 
 from ..contracts.models import FollowupExercise, SemanticResult, SemanticResultError
 from ..llm.client import structured_generate
 from ..reference.generate import ReferenceBundle
+
+log = logging.getLogger(__name__)
 
 
 _EVAL_TOOL = {
@@ -121,6 +125,14 @@ def evaluate(
     The feedback_audio_path and followup_audio_path are MinIO keys for TTS audio
     that must be generated before calling this function.
     """
+    eval_t0 = time.monotonic()
+    log.info(
+        "[eval.begin] attempt=%s transcript_len=%d reference_len=%d",
+        attempt_id,
+        len(user_transcript),
+        len(reference.canonical),
+    )
+
     system = _SYSTEM_PROMPT.format(
         register=register,
         domain=domain,
@@ -143,12 +155,16 @@ Learner's interpretation ({target_lang}):
 {user_transcript}
 """
 
+    log.info("[eval.claude.begin] attempt=%s", attempt_id)
+    t_claude = time.monotonic()
     inp = structured_generate(
         system=system,
         user=user_message,
         tool=_EVAL_TOOL,
         max_tokens=2048,
     )
+    claude_ms = int((time.monotonic() - t_claude) * 1000)
+    log.info("[eval.claude.done] attempt=%s took=%dms", attempt_id, claude_ms)
 
     now = datetime.now(timezone.utc)
     latency_ms = int((now - start_time).total_seconds() * 1000)
@@ -169,7 +185,7 @@ Learner's interpretation ({target_lang}):
         prompt_text=followup_raw["prompt_text"],
         prompt_audio_path=followup_audio_path,
     )
-    return SemanticResult(
+    result = SemanticResult(
         attempt_id=attempt_id,
         transcript=user_transcript,
         reference_translation=reference.canonical,
@@ -182,3 +198,6 @@ Learner's interpretation ({target_lang}):
         computed_at=now,
         latency_ms=latency_ms,
     )
+    total_eval_ms = int((time.monotonic() - eval_t0) * 1000)
+    log.info("[eval.complete] attempt=%s total_took=%dms", attempt_id, total_eval_ms)
+    return result

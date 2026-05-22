@@ -5,6 +5,8 @@ import type {
   WSAudioAck,
   WSAudioSubmitHeader,
   WSError,
+  WSGenerationComplete,
+  WSGenerationProgress,
   WSMasteryUpdate,
   WSProsodyResult,
   WSRecordingBegin,
@@ -25,6 +27,8 @@ export type WSEventMap = {
   "mastery.update": WSMasteryUpdate["payload"];
   "session.complete_ack": WSSessionCompleteAck["payload"];
   "state.change": WSStateChange["payload"];
+  "generation.progress": WSGenerationProgress["payload"];
+  "generation.complete": WSGenerationComplete["payload"];
   error: WSError["payload"];
   connected: void;
   disconnected: { code: number; reason: string };
@@ -120,6 +124,12 @@ export class WSClient {
         break;
       case "state.change":
         this._emit("state.change", msg.payload);
+        break;
+      case "generation.progress":
+        this._emit("generation.progress", msg.payload);
+        break;
+      case "generation.complete":
+        this._emit("generation.complete", msg.payload);
         break;
       case "error":
         this._emit("error", msg.payload);

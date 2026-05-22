@@ -1,13 +1,23 @@
-import { CreateSessionForm } from "./CreateSessionForm";
+"use client";
 
-export default function Home() {
-  return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 p-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Interpretit</h1>
-        <p className="mt-1 text-sm text-zinc-500">Operator dashboard</p>
-      </div>
-      <CreateSessionForm />
-    </main>
-  );
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+const UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+export default function RootRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    const id =
+      typeof window !== "undefined"
+        ? localStorage.getItem("interpretit:learner_id")
+        : null;
+    if (id && UUID_RE.test(id)) {
+      router.replace(`/learner/${id}`);
+    } else {
+      router.replace("/login");
+    }
+  }, [router]);
+  return null;
 }

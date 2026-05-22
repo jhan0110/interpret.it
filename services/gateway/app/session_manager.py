@@ -41,6 +41,7 @@ class SessionSnapshot:
     current_source_text: str
     current_register: str
     current_difficulty: int
+    segment_count: int
 
 
 async def _session_row(session: AsyncSession, sid: UUID) -> SessionRow:
@@ -77,6 +78,7 @@ async def snapshot(session_id: UUID) -> SessionSnapshot:
             current_source_text=seg_text,
             current_register=seg_register,
             current_difficulty=seg_difficulty,
+            segment_count=row.segment_count,
         )
 
 
@@ -95,6 +97,7 @@ async def create_session(
     domain: str,
     source_lang: str,
     target_lang: str,
+    generation_params: dict | None = None,
 ) -> SessionRow:
     sessionmaker = sessionmaker_factory()
     async with sessionmaker() as db:
@@ -111,6 +114,8 @@ async def create_session(
             source_lang=source_lang,
             target_lang=target_lang,
             segment_count=0,
+            generation_params=generation_params,
+            generation_state="pending" if generation_params else "none",
         )
         db.add(row)
         await db.commit()
@@ -282,6 +287,7 @@ async def persist_attempt(
     segment_id: UUID,
     audio_path: str,
     recorded_at: datetime,
+    duration_ms: int = 0,
 ) -> SessionSnapshot:
     sessionmaker = sessionmaker_factory()
     async with sessionmaker() as db:
@@ -292,6 +298,7 @@ async def persist_attempt(
             segment_id=segment_id,
             learner_id=row.learner_id,
             audio_path=audio_path,
+            duration_ms=duration_ms,
             recorded_at=recorded_at,
         )
         db.add(attempt)

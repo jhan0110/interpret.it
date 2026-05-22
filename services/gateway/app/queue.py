@@ -54,8 +54,36 @@ async def enqueue_analysis(
 
     pool = await create_pool(_redis_settings())
     try:
-        await pool.enqueue_job("run_prosody", payload, _queue_name="prosody")
+        # Prosody is now derived inside run_semantic from ASR word timestamps;
+        # see services/analysis/app/prosody/word_prosody.py. No separate queue.
         await pool.enqueue_job("run_semantic", payload, _queue_name="semantic")
     finally:
         await pool.aclose()
     return req
+
+
+async def enqueue_generation(
+    *,
+    session_id: UUID,
+    learner_id: UUID,
+    domain: str,
+    source_lang: str,
+    target_lang: str,
+    generation_params: dict,
+) -> None:
+    """Push a generation job onto the `generation` arq queue."""
+    payload = {
+        "session_id": str(session_id),
+        "learner_id": str(learner_id),
+        "domain": domain,
+        "source_lang": source_lang,
+        "target_lang": target_lang,
+        "params": generation_params,
+    }
+    pool = await create_pool(_redis_settings())
+    try:
+        await pool.enqueue_job(
+            "run_generation", payload, _queue_name="generation"
+        )
+    finally:
+        await pool.aclose()

@@ -6,7 +6,7 @@
 export interface AudioSubmission {
   segment_id: string;
   attempt_id: string;
-  audio_format: "opus/webm";
+  audio_format: string;
   /** delivered in the following binary frame */
   audio_blob?: never;
   byte_length: number;
@@ -138,11 +138,20 @@ export interface MasteryScore {
 
 // ---- REST shapes ----
 
+export interface GenerationParams {
+  topics: string[];
+  user_level: 1 | 2 | 3 | 4 | 5;
+  duration: "short" | "medium" | "long";
+  current_context?: string | null;
+  n?: number;
+}
+
 export interface PostSessionRequest {
   learner_id: string;
   domain: string;
   source_lang: "ko" | "en";
   target_lang: "ko" | "en";
+  generation?: GenerationParams | null;
 }
 
 export type PostSessionResponse = Session;
@@ -153,6 +162,11 @@ export interface CompleteSessionResponse {
   attempts_count: number;
   mean_score: number;
   mastery_changes: MasteryUpdate[];
+}
+
+export interface GetAttemptAudioUrlResponse {
+  audio_url: string;
+  expires_in_s: number;
 }
 
 export type GetLearnerResponse = Learner;
@@ -268,6 +282,27 @@ export interface WSStateChange {
   };
 }
 
+export interface WSGenerationProgress {
+  type: "generation.progress";
+  ts: string;
+  payload: {
+    session_id: string;
+    ready: number;
+    target: number;
+    state: "pending" | "ready" | "failed";
+  };
+}
+
+export interface WSGenerationComplete {
+  type: "generation.complete";
+  ts: string;
+  payload: {
+    session_id: string;
+    count: number;
+    scenario_summary: string | null;
+  };
+}
+
 export interface WSError {
   type: "error";
   ts: string;
@@ -287,6 +322,8 @@ export type ServerMessage =
   | WSMasteryUpdate
   | WSSessionCompleteAck
   | WSStateChange
+  | WSGenerationProgress
+  | WSGenerationComplete
   | WSError;
 
 export type ClientMessage =

@@ -36,15 +36,16 @@ following additions/clarifications:
 │   │   │   └── db.py
 │   │   ├── alembic/
 │   │   └── tests/
-│   └── analysis/                  # FastAPI — ASR, LLM, prosody, TTS
+│   └── analysis/                  # FastAPI — ASR, LLM, vocab, generation
 │       ├── app/
 │       │   ├── main.py
-│       │   ├── worker.py          # arq worker, queues: prosody + semantic
-│       │   ├── asr/               # faster-whisper
+│       │   ├── worker.py          # arq worker, queues: semantic + generation
+│       │   ├── asr/               # Groq Whisper API (faster-whisper as fallback)
 │       │   ├── evaluation/        # Claude structured eval
-│       │   ├── prosody/           # librosa + silero-vad
+│       │   ├── prosody/           # word_prosody.py (derived from ASR timestamps)
 │       │   ├── tts/               # ElevenLabs + Kokoro + splicing
 │       │   ├── reference/         # reference generation
+│       │   ├── vocab/             # vocabulary extraction (Claude)
 │       │   └── contracts/         # Pydantic models from contracts.json
 │       └── tests/
 └── audio_assets/
@@ -228,6 +229,13 @@ and excludes nearest neighbors above a similarity threshold.
 
 The gateway persists state on every transition; reconnection re-emits
 the current state to the client.
+
+> **Note (post-Phase 7):** The `prosody.result` and `semantic.result` events
+> are now emitted by the same `arq-semantic` worker — prosody is derived
+> in-memory from the ASR word timestamps and pushed before evaluate runs,
+> rather than being computed in a separate `arq-prosody` worker. The state
+> machine semantics are unchanged: `_close_if_ready` still waits for both
+> results before closing the attempt.
 
 ## 6. Difficulty Ladder
 

@@ -2,49 +2,105 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PostSessionResponse } from "@/lib/contracts";
+import type {
+  GenerationParams,
+  PostSessionRequest,
+  PostSessionResponse,
+} from "@/lib/contracts";
 
 const GATEWAY_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
 
-interface CreateSessionBody {
-  learner_id: string;
-  domain: string;
-  difficulty_level: number;
-}
+type Direction = "en-ko" | "ko-en";
 
-export function CreateSessionForm() {
+const DIRECTIONS: Record<
+  Direction,
+  { source_lang: "en" | "ko"; target_lang: "en" | "ko"; label: string }
+> = {
+  "en-ko": { source_lang: "en", target_lang: "ko", label: "English → Korean" },
+  "ko-en": { source_lang: "ko", target_lang: "en", label: "Korean → English" },
+};
+
+const TOPICS = [
+  { value: "logistics", label: "Logistics" },
+  { value: "diplomacy", label: "Diplomacy" },
+  { value: "intelligence", label: "Intelligence" },
+  { value: "operations", label: "Operations" },
+  { value: "medical", label: "Medical" },
+  { value: "cyber", label: "Cyber" },
+] as const;
+
+const LEVELS = [
+  { value: 1, label: "1 — Foundational" },
+  { value: 2, label: "2 — Building" },
+  { value: 3, label: "3 — Working" },
+  { value: 4, label: "4 — Advanced" },
+  { value: 5, label: "5 — Expert" },
+] as const;
+
+const DURATIONS = [
+  { value: "short", label: "Short (~10s/phrase)" },
+  { value: "medium", label: "Medium (~20s/phrase)" },
+  { value: "long", label: "Long (~40s/phrase)" },
+] as const;
+
+export function CreateSessionForm({
+  learnerId: presetLearnerId,
+}: {
+  learnerId?: string;
+} = {}) {
   const router = useRouter();
-  const [learnerId, setLearnerId] = useState("");
-  const [domain, setDomain] = useState("");
-  const [difficultyLevel, setDifficultyLevel] = useState(5);
+  const [learnerId, setLearnerId] = useState(presetLearnerId ?? "");
+  const [direction, setDirection] = useState<Direction>("en-ko");
+  const [topics, setTopics] = useState<string[]>(["logistics"]);
+  const [userLevel, setUserLevel] =
+    useState<GenerationParams["user_level"]>(3);
+  const [duration, setDuration] =
+    useState<GenerationParams["duration"]>("medium");
+  const [currentContext, setCurrentContext] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  function toggleTopic(value: string) {
+    setTopics((prev) =>
+      prev.includes(value)
+        ? prev.filter((t) => t !== value)
+        : [...prev, value],
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    if (topics.length === 0) {
+      setError("Pick at least one topic.");
+      return;
+    }
     setSubmitting(true);
-
-    const body: CreateSessionBody = {
+    const { source_lang, target_lang } = DIRECTIONS[direction];
+    const body: PostSessionRequest = {
       learner_id: learnerId.trim(),
-      domain: domain.trim(),
-      difficulty_level: difficultyLevel,
+      domain: topics[0],
+      source_lang,
+      target_lang,
+      generation: {
+        topics,
+        user_level: userLevel,
+        duration,
+        current_context: currentContext.trim() || null,
+      },
     };
-
     try {
       const res = await fetch(`${GATEWAY_URL}/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
       if (!res.ok) {
         const text = await res.text();
         setError(`Request failed (${res.status}): ${text}`);
         return;
       }
-
       const session = (await res.json()) as PostSessionResponse;
       router.push(`/${session.id}`);
     } catch (err) {
@@ -56,49 +112,115 @@ export function CreateSessionForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <label htmlFor="learner-id" className="text-sm font-medium">
-          Learner ID
-        </label>
-        <input
-          id="learner-id"
-          type="text"
-          value={learnerId}
-          onChange={(e) => setLearnerId(e.target.value)}
-          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-          pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-          required
-          className="rounded border border-zinc-300 px-3 py-2 font-mono text-sm focus:border-zinc-500 focus:outline-none"
-        />
-      </div>
+      {presetLearnerId === undefined && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="learner-id" className="text-sm font-medium">
+            Learner ID
+          </label>
+          <input
+            id="learner-id"
+            type="text"
+            value={learnerId}
+            onChange={(e) => setLearnerId(e.target.value)}
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+            required
+            className="rounded border border-zinc-300 px-3 py-2 font-mono text-sm focus:border-zinc-500 focus:outline-none"
+          />
+        </div>
+      )}
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="domain" className="text-sm font-medium">
-          Domain
+        <label htmlFor="direction" className="text-sm font-medium">
+          Direction
         </label>
-        <input
-          id="domain"
-          type="text"
-          value={domain}
-          onChange={(e) => setDomain(e.target.value)}
-          placeholder="logistics, diplomacy, ..."
+        <select
+          id="direction"
+          value={direction}
+          onChange={(e) => setDirection(e.target.value as Direction)}
           required
           className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-        />
+        >
+          {(Object.entries(DIRECTIONS) as [Direction, (typeof DIRECTIONS)[Direction]][]).map(
+            ([key, { label }]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ),
+          )}
+        </select>
+      </div>
+
+      <fieldset className="flex flex-col gap-2 rounded border border-zinc-200 p-3">
+        <legend className="px-1 text-sm font-medium">Topics</legend>
+        <div className="grid grid-cols-2 gap-1">
+          {TOPICS.map((t) => (
+            <label key={t.value} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={topics.includes(t.value)}
+                onChange={() => toggleTopic(t.value)}
+              />
+              <span>{t.label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor="user-level" className="text-sm font-medium">
+          Difficulty
+        </label>
+        <select
+          id="user-level"
+          value={userLevel}
+          onChange={(e) =>
+            setUserLevel(
+              Number(e.target.value) as GenerationParams["user_level"],
+            )
+          }
+          required
+          className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+        >
+          {LEVELS.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="difficulty" className="text-sm font-medium">
-          Difficulty level (1–10)
+        <label htmlFor="duration" className="text-sm font-medium">
+          Phrase length
         </label>
-        <input
-          id="difficulty"
-          type="number"
-          min={1}
-          max={10}
-          value={difficultyLevel}
-          onChange={(e) => setDifficultyLevel(Number(e.target.value))}
+        <select
+          id="duration"
+          value={duration}
+          onChange={(e) =>
+            setDuration(e.target.value as GenerationParams["duration"])
+          }
           required
+          className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+        >
+          {DURATIONS.map((d) => (
+            <option key={d.value} value={d.value}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor="context" className="text-sm font-medium">
+          Current context <span className="text-zinc-400">(optional)</span>
+        </label>
+        <textarea
+          id="context"
+          value={currentContext}
+          onChange={(e) => setCurrentContext(e.target.value)}
+          placeholder="e.g. NATO supply rerouting through Poland"
+          rows={2}
           className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
         />
       </div>
@@ -114,7 +236,7 @@ export function CreateSessionForm() {
         disabled={submitting}
         className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {submitting ? "Starting..." : "Start Session"}
+        {submitting ? "Generating..." : "Start Session"}
       </button>
     </form>
   );

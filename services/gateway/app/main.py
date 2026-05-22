@@ -9,11 +9,13 @@ or the internal RPC handler — analysis workers never touch the DB.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, internal, sessions
+from app.api import health, internal, sessions, vocab
 from app.storage import ensure_bucket
 from app.ws import session_socket
 
@@ -31,7 +33,21 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="interpretit-gateway", lifespan=lifespan)
 
+# Dashboard at :3000 → gateway at :8000 is cross-origin in dev. In prod a
+# reverse proxy puts both behind one host and this middleware becomes a no-op.
+_allowed_origins = os.getenv(
+    "CORS_ALLOW_ORIGINS", "http://localhost:3000"
+).split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(health.router)
 app.include_router(sessions.router)
 app.include_router(internal.router)
 app.include_router(session_socket.router)
+app.include_router(vocab.router)

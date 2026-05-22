@@ -7,9 +7,13 @@ to match WS contract and avoid float/seconds confusion.
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Literal
+
+log = logging.getLogger(__name__)
 
 _model_cache: dict[str, object] = {}
 
@@ -30,9 +34,17 @@ class WordTimestampedTranscript:
     duration_s: float
 
 
-def _get_model(model_size: str = "large-v3") -> object:
+def _get_model(model_size: str | None = None) -> object:
+    if model_size is None:
+        model_size = os.environ.get("WHISPER_MODEL", "small")
     if model_size not in _model_cache:
-        from faster_whisper import WhisperModel  # type: ignore[import-untyped]
+        try:
+            from faster_whisper import WhisperModel  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise RuntimeError(
+                "Local Whisper fallback requested but faster-whisper is not installed. "
+                "Set WHISPER_PROVIDER=groq or reinstall the package."
+            ) from exc
 
         device = "cuda" if os.environ.get("CUDA_VISIBLE_DEVICES") else "cpu"
         compute_type = "float16" if device == "cuda" else "int8"
@@ -54,14 +66,32 @@ def _download_from_minio(audio_path: str, local_path: str) -> None:
 
 
 def transcribe(audio_path: str, lang: Literal["ko", "en"]) -> WordTimestampedTranscript:
-    """Transcribe audio from MinIO by key, returning word-level timestamps in ms."""
+    """Dispatch to local faster-whisper or a remote provider per WHISPER_PROVIDER."""
+    provider = os.environ.get("WHISPER_PROVIDER", "local")
+    log.info("[asr.transcribe.dispatch] provider=%s audio_path=%s lang=%s", provider, audio_path, lang)
+    if provider == "groq":
+        from app.asr.transcribe_groq import transcribe as _remote_transcribe
+
+        return _remote_transcribe(audio_path, lang)
+    return _transcribe_local(audio_path, lang)
+
+
+def _transcribe_local(audio_path: str, lang: Literal["ko", "en"]) -> WordTimestampedTranscript:
+    """Local faster-whisper transcription (fallback / offline mode)."""
     import tempfile
+
+    log.info("[asr.local.begin] audio_path=%s lang=%s", audio_path, lang)
+    t0 = time.monotonic()
 
     with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
+        log.info("[asr.download.begin] audio_path=%s", audio_path)
+        t_dl = time.monotonic()
         _download_from_minio(audio_path, tmp_path)
+        dl_ms = int((time.monotonic() - t_dl) * 1000)
+        log.info("[asr.download.done] audio_path=%s took=%dms", audio_path, dl_ms)
         model = _get_model()
         segments, info = model.transcribe(  # type: ignore[attr-defined]
             tmp_path,
@@ -85,12 +115,15 @@ def transcribe(audio_path: str, lang: Literal["ko", "en"]) -> WordTimestampedTra
                         )
                     )
 
-        return WordTimestampedTranscript(
+        result = WordTimestampedTranscript(
             text=" ".join(full_text_parts),
             words=words,
             language=info.language,
             duration_s=info.duration,
         )
+        total_ms = int((time.monotonic() - t0) * 1000)
+        log.info("[asr.local.done] audio_path=%s chars=%d words=%d took=%dms", audio_path, len(result.text), len(result.words), total_ms)
+        return result
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)

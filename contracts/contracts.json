@@ -191,7 +191,19 @@
     "learner_id":  "uuid",
     "domain":      "string",
     "source_lang": "ko | en",
-    "target_lang": "ko | en"
+    "target_lang": "ko | en",
+    "generation":  "REST.GenerationParams | null"
+  },
+
+  // Operator-supplied parameters for the daily-training-session generator.
+  // When present, gateway enforces the quota, persists the params, and
+  // enqueues an analysis job that produces a 10-pack of cohesive phrases.
+  "REST.GenerationParams": {
+    "topics":          ["string"],
+    "user_level":      "integer 1-5",
+    "duration":        "short | medium | long",
+    "current_context": "string | null",
+    "n":               "integer 1-50"
   },
   "REST.PostSessionResponse":  "Session",
   "REST.GetSessionResponse":   "Session",
@@ -200,6 +212,10 @@
     "attempts_count":   "integer",
     "mean_score":       "float 0-1",
     "mastery_changes":  ["MasteryUpdate"]
+  },
+  "REST.GetAttemptAudioUrlResponse": {
+    "audio_url":    "string",
+    "expires_in_s": "integer"
   },
   "REST.GetLearnerResponse":  "Learner",
   "REST.GetLearnerMasteryResponse": {
@@ -332,6 +348,28 @@
       "from":       "idle | listening | recording | analyzing | feedback | next_segment | complete",
       "to":         "idle | listening | recording | analyzing | feedback | next_segment | complete",
       "reason":     "string"
+    }
+  },
+
+  // Daily-training generation progress; emitted after each segment lands
+  // in `paraphrase_embeddings` + `segments`. Lossy on slow connections.
+  "WSMessage.GenerationProgress": {
+    "type": "generation.progress",
+    "payload": {
+      "session_id": "uuid",
+      "ready":      "integer 0-",
+      "target":     "integer 1-",
+      "state":      "pending | ready | failed"
+    }
+  },
+
+  // Generation done — frontend can render the "Begin" affordance.
+  "WSMessage.GenerationComplete": {
+    "type": "generation.complete",
+    "payload": {
+      "session_id":       "uuid",
+      "count":            "integer 0-",
+      "scenario_summary": "string | null"
     }
   },
 
