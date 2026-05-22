@@ -65,18 +65,18 @@ def _download_from_minio(audio_path: str, local_path: str) -> None:
     client.download_file(bucket, audio_path, local_path)
 
 
-def transcribe(audio_path: str, lang: Literal["ko", "en"]) -> WordTimestampedTranscript:
+def transcribe(audio_path: str, lang: Literal["ko", "en"], prompt: str | None = None) -> WordTimestampedTranscript:
     """Dispatch to local faster-whisper or a remote provider per WHISPER_PROVIDER."""
     provider = os.environ.get("WHISPER_PROVIDER", "local")
     log.info("[asr.transcribe.dispatch] provider=%s audio_path=%s lang=%s", provider, audio_path, lang)
     if provider == "groq":
         from app.asr.transcribe_groq import transcribe as _remote_transcribe
 
-        return _remote_transcribe(audio_path, lang)
-    return _transcribe_local(audio_path, lang)
+        return _remote_transcribe(audio_path, lang, prompt)
+    return _transcribe_local(audio_path, lang, prompt)
 
 
-def _transcribe_local(audio_path: str, lang: Literal["ko", "en"]) -> WordTimestampedTranscript:
+def _transcribe_local(audio_path: str, lang: Literal["ko", "en"], prompt: str | None = None) -> WordTimestampedTranscript:
     """Local faster-whisper transcription (fallback / offline mode)."""
     import tempfile
 
@@ -98,6 +98,7 @@ def _transcribe_local(audio_path: str, lang: Literal["ko", "en"]) -> WordTimesta
             language=lang,
             word_timestamps=True,
             vad_filter=True,
+            initial_prompt=prompt,
         )
 
         words: list[WordToken] = []

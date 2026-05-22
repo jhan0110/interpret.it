@@ -207,3 +207,18 @@ TOPIC_SEEDS: dict[str, list[dict]] = {
 
 def seed_uuid(domain: str, source_lang: str, term: str) -> UUID:
     return uuid5(NAMESPACE_URL, f"vocab_seed:{domain}:{source_lang}:{term}")
+
+
+def domain_asr_prompt(domain: str, target_lang: str) -> str:
+    """Return a comma-joined hint string of domain vocabulary for Whisper priming.
+
+    When *target_lang* is ``"ko"`` the Korean definitions are used; for ``"en"``
+    (or any other value) the English terms are used.  An unknown *domain* returns
+    an empty string.
+    """
+    entries = TOPIC_SEEDS.get(domain)
+    if not entries:
+        return ""
+    if target_lang == "ko":
+        return ", ".join(entry["definition"] for entry in entries)
+    return ", ".join(entry["term"] for entry in entries)

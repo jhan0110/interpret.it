@@ -102,7 +102,7 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
             # Only need to transcribe; skip generate_reference entirely.
             log.info("[semantic.transcribe.begin] attempt=%s", req.attempt_id)
             t_asr = time.monotonic()
-            transcript = await asyncio.to_thread(transcribe, req.audio_path, req.target_lang)
+            transcript = await asyncio.to_thread(transcribe, req.audio_path, req.target_lang, prompt=req.asr_prompt)
             asr_ms = int((time.monotonic() - t_asr) * 1000)
             log.info("[semantic.transcribe.done] attempt=%s chars=%d took=%dms", req.attempt_id, len(transcript.text), asr_ms)
             reference = cached_ref
@@ -113,7 +113,7 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
             log.info("[semantic.reference.begin] attempt=%s", req.attempt_id)
             t_parallel = time.monotonic()
             transcript, reference = await asyncio.gather(
-                asyncio.to_thread(transcribe, req.audio_path, req.target_lang),
+                asyncio.to_thread(transcribe, req.audio_path, req.target_lang, prompt=req.asr_prompt),
                 asyncio.to_thread(
                     generate_reference,
                     req.source_text,

@@ -56,6 +56,7 @@ class AnalysisRequest(BaseModel):
     domain: str
     difficulty_level: DifficultyLevel
     enqueued_at: datetime
+    asr_prompt: str | None = None
 
 
 class ProsodyResult(BaseModel):

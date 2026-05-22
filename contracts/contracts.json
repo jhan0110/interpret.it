@@ -70,7 +70,8 @@
     "register":         "formal-military | formal-diplomatic | informal",
     "domain":           "string",                  // e.g. "logistics", "diplomatic", "intel-brief"
     "difficulty_level": "integer 1-10",
-    "enqueued_at":      "iso8601"
+    "enqueued_at":      "iso8601",
+    "asr_prompt":       "string | null"            // domain-vocabulary hint for Whisper priming (optional)
   },
 
   // Analysis → Gateway. Fast path. Target latency ≤2s.

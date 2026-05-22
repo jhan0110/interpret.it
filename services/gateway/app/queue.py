@@ -15,6 +15,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 
 from app.contracts.models import AnalysisRequest
+from app.vocab.seeds import domain_asr_prompt
 
 
 def _redis_settings() -> RedisSettings:
@@ -36,6 +37,7 @@ async def enqueue_analysis(
     difficulty_level: int,
 ) -> AnalysisRequest:
     """Push the AnalysisRequest to both arq queues. Returns the payload."""
+    hint = domain_asr_prompt(domain, target_lang) or None
     req = AnalysisRequest(
         attempt_id=attempt_id,
         segment_id=segment_id,
@@ -49,6 +51,7 @@ async def enqueue_analysis(
         domain=domain,
         difficulty_level=difficulty_level,
         enqueued_at=datetime.now(UTC),
+        asr_prompt=hint,
     )
     payload = req.model_dump(mode="json")
 
