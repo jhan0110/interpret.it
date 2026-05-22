@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { AttemptRecorder } from "@/lib/audio";
 import type {
+  ProsodyResult,
+  SemanticResult,
   SessionState as ContractSessionState,
   WSGenerationComplete,
   WSGenerationProgress,
@@ -12,11 +14,12 @@ import type {
   WSStateChange,
 } from "@/lib/contracts";
 import { WSClient } from "@/lib/ws";
+import { AttemptFeedback } from "@/components/AttemptFeedback";
 
 /**
- * Active session UI. Per CLAUDE.md, this view MUST NOT render any text
- * representation of the audio content (no transcript, no subtitles, no
- * source text). State indicators and visual cues only.
+ * Active session UI. Per CLAUDE.md, no text is shown while the learner is
+ * listening or recording — only state indicators and visual cues. After
+ * each attempt the `feedback` state shows a full review-style breakdown.
  */
 type Props = {
   sessionId: string;
@@ -60,6 +63,8 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
   const [currentAttemptId, setCurrentAttemptId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [semanticResult, setSemanticResult] = useState<SemanticResult | null>(null);
+  const [prosodyResult, setProsodyResult] = useState<ProsodyResult | null>(null);
   const [generation, setGeneration] = useState<{
     state: "pending" | "ready" | "failed";
     ready: number;
@@ -134,6 +139,9 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
       console.log("[WS] segment.play", p);
       setCurrentSegmentId(p.segment_id);
       setAudioUrl(p.audio_url);
+      // New segment — clear the previous attempt's feedback.
+      setSemanticResult(null);
+      setProsodyResult(null);
       // Item 2: increment segment counter
       setSegmentNumber((n) => n + 1);
       // Item 3: capture delay for countdown; reset audio phase state
@@ -158,11 +166,11 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
     client.on("prosody.result", (p) => {
       console.log("[WS] prosody.result", p);
       setBand(p.cognitive_load_estimate);
+      setProsodyResult(p);
     });
     client.on("semantic.result", (p) => {
       console.log("[WS] semantic.result", p);
-      // semantic.result intentionally not rendered as text here — review
-      // route is the only place transcripts surface.
+      setSemanticResult(p);
     });
     client.on(
       "generation.progress",
@@ -506,7 +514,7 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
         {/* Item 5: complete state handled below */}
       </div>
 
-      {audioUrl && (state === "listening" || state === "feedback" || state === "next_segment") && (
+      {audioUrl && state === "listening" && (
         <audio
           key={audioUrl}
           autoPlay
@@ -531,6 +539,16 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
             setAudioEnded(true);
           }}
         />
+      )}
+
+      {/* Feedback page — review-style breakdown of the just-finished attempt */}
+      {state === "feedback" && (
+        <div className="w-full rounded-lg bg-white p-6 text-left text-black">
+          <AttemptFeedback
+            semanticResult={semanticResult}
+            prosodyResult={prosodyResult}
+          />
+        </div>
       )}
 
       <div className="flex gap-3">

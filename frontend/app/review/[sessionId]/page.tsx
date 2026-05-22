@@ -1,9 +1,9 @@
 import Link from "next/link";
+import { AttemptFeedback } from "@/components/AttemptFeedback";
 import type {
   Attempt,
   CompleteSessionResponse,
   GetAttemptAudioUrlResponse,
-  SemanticError,
 } from "@/lib/contracts";
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? "http://localhost:8000";
@@ -37,17 +37,6 @@ async function fetchAttemptAudioUrl(
   if (!res.ok) return null;
   const data = (await res.json()) as GetAttemptAudioUrlResponse;
   return data.audio_url;
-}
-
-function severityColor(severity: SemanticError["severity"]): string {
-  switch (severity) {
-    case "minor":
-      return "border-zinc-300 bg-zinc-50";
-    case "moderate":
-      return "border-yellow-400 bg-yellow-50";
-    case "critical":
-      return "border-red-500 bg-red-50";
-  }
 }
 
 export default async function ReviewPage({
@@ -111,73 +100,11 @@ export default async function ReviewPage({
               <span className="font-mono text-xs text-zinc-400">{a.id}</span>
             </header>
 
-            {audioUrls[idx] !== null && (
-              <div className="mb-4">
-                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                <audio
-                  src={audioUrls[idx]!}
-                  controls
-                  preload="metadata"
-                  className="w-full"
-                />
-              </div>
-            )}
-
-            {a.semantic_result ? (
-              <div className="space-y-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Your interpretation</h3>
-                  <p className="text-sm text-zinc-800">
-                    {a.semantic_result.transcript || "(empty)"}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold">Reference</h3>
-                  <p className="text-sm text-zinc-800">
-                    {a.semantic_result.reference_translation}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold">Score</h3>
-                  <p className="text-sm">
-                    {(a.semantic_result.overall_score * 100).toFixed(0)}%
-                  </p>
-                </div>
-                {a.semantic_result.errors.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold">Errors</h3>
-                    <ul className="space-y-2">
-                      {a.semantic_result.errors.map((e, i) => (
-                        <li
-                          key={i}
-                          className={`rounded border p-2 text-sm ${severityColor(e.severity)}`}
-                        >
-                          <div className="font-medium">{e.type}</div>
-                          <div className="text-zinc-700">{e.explanation}</div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                <div>
-                  <h3 className="text-sm font-semibold">Feedback</h3>
-                  <p className="text-sm text-zinc-700">
-                    {a.semantic_result.feedback_text}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-zinc-500">Awaiting semantic result.</p>
-            )}
-
-            {a.prosody_result && (
-              <div className="mt-4 rounded bg-zinc-50 p-2 text-xs text-zinc-600">
-                Pauses {a.prosody_result.pause_count} · Fillers{" "}
-                {a.prosody_result.filler_count} · WPM{" "}
-                {a.prosody_result.mean_wpm.toFixed(0)} · Cognitive load{" "}
-                {a.prosody_result.cognitive_load_estimate}
-              </div>
-            )}
+            <AttemptFeedback
+              semanticResult={a.semantic_result}
+              prosodyResult={a.prosody_result}
+              audioUrl={audioUrls[idx]}
+            />
           </article>
         ))}
       </section>

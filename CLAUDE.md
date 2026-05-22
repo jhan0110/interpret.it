@@ -59,9 +59,12 @@ Two FastAPI services behind a shared gateway, one Next.js frontend.
   Vitest for frontend.
 
 ## Key Architectural Rules
-- **No text during sessions.** The `(session)` route group must never render
-  transcripts, subtitles, or any textual representation of audio content.
-  All text review is gated behind session completion in `(review)`.
+- **No text while interpreting.** During the `listening` and `recording`
+  states the `(session)` route group must never render transcripts,
+  subtitles, or any textual representation of the audio content — the
+  learner interprets from audio alone. After each attempt the `feedback`
+  state shows a full review-style breakdown (transcript, reference,
+  errors, score); the post-session `(review)` route shows the same.
 - **Single analysis pipeline.** When a user finishes recording, `run_semantic`
   on the `semantic` arq queue does the full sequence:
   1. **Groq Whisper transcription** (~1–2s) returns text + word-level timestamps
@@ -159,7 +162,7 @@ take effect without restart.
 ## Compact Instructions
 When compacting, always preserve: the stack table, the single-pipeline analysis
 flow (Groq → prosody-derive → reference → TTS → evaluate → vocab-extract), the
-"no text during sessions" rule, the contracts.json schema, the Content
+"no text while interpreting" rule, the contracts.json schema, the Content
 generation parameters section, and the Learner-facing surface section.
 
 <!-- PERSONAL SECTION: paste your personal CLAUDE.md component below this line -->
