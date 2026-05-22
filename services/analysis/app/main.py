@@ -1,8 +1,8 @@
 """Analysis FastAPI app.
 
-Exposes only /health. All real work runs inside the arq worker
-(`app.worker`); the HTTP surface is for liveness probes and on-demand
-admin tools.
+Most real work runs inside the arq worker (`app.worker`). The HTTP surface
+exposes /health + /internal/embed_texts (called by the gateway during
+segment seeding to populate `paraphrase_embeddings`).
 """
 
 from __future__ import annotations
@@ -11,6 +11,9 @@ import os
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
+from pydantic import BaseModel
+
+from app.embeddings import embed_texts
 
 app = FastAPI(title="interpretit-analysis")
 
@@ -24,3 +27,16 @@ async def health() -> dict:
         "version": _VERSION,
         "checked_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
+
+
+class EmbedRequest(BaseModel):
+    texts: list[str]
+
+
+class EmbedResponse(BaseModel):
+    embeddings: list[list[float]]
+
+
+@app.post("/internal/embed_texts", response_model=EmbedResponse)
+async def post_embed_texts(req: EmbedRequest) -> EmbedResponse:
+    return EmbedResponse(embeddings=embed_texts(req.texts))

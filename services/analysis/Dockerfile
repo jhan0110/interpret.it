@@ -14,9 +14,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install .
+# Install CPU-only torch first from the pytorch index to avoid pulling
+# ~3 GB of NVIDIA CUDA libraries that we never use on Mac/CPU hosts.
+RUN pip install --upgrade pip \
+    && pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2.0" \
+    && pip install .
+
+# spaCy + sentence-transformers libraries are installed via pyproject above.
+# The model weights are large (~1 GB combined for spaCy ko+en, ~1 GB for
+# multilingual-e5) so they download lazily on first use, or via the helper:
+#     docker compose exec analysis python -m scripts.download_models
+# Run that once after build; the models cache in /root/.cache and persist
+# across container restarts via the named volume if you mount one.
 
 COPY app ./app
+COPY scripts ./scripts
 
 EXPOSE 8001
 

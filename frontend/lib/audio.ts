@@ -12,8 +12,16 @@
  *   const { blob, durationMs } = await r.stop();
  */
 
-const PREFERRED_MIME = "audio/webm;codecs=opus";
-const FALLBACK_MIME = "audio/webm";
+// Ordered preference: Opus/WebM (Chrome/Firefox), then MP4/AAC (Safari),
+// then any audio/* MediaRecorder will accept. Whisper handles all of these.
+const MIME_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4;codecs=mp4a.40.2",
+  "audio/mp4",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+];
 
 export type RecordingResult = {
   blob: Blob;
@@ -32,16 +40,16 @@ export class AttemptRecorder {
   static isSupported(): boolean {
     if (typeof window === "undefined") return false;
     if (!("MediaRecorder" in window)) return false;
-    return (
-      MediaRecorder.isTypeSupported(PREFERRED_MIME) ||
-      MediaRecorder.isTypeSupported(FALLBACK_MIME)
-    );
+    return MIME_CANDIDATES.some((m) => MediaRecorder.isTypeSupported(m));
   }
 
   private pickMime(): string {
-    if (MediaRecorder.isTypeSupported(PREFERRED_MIME)) return PREFERRED_MIME;
-    if (MediaRecorder.isTypeSupported(FALLBACK_MIME)) return FALLBACK_MIME;
-    throw new Error("No supported opus/webm MIME type available");
+    for (const m of MIME_CANDIDATES) {
+      if (MediaRecorder.isTypeSupported(m)) return m;
+    }
+    throw new Error(
+      "No MediaRecorder MIME type supported — try Chrome, Firefox, Edge, or Safari 14.1+",
+    );
   }
 
   async start(): Promise<void> {

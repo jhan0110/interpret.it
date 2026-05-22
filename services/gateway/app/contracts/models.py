@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 Lang = Literal["ko", "en"]
 Register = Literal["formal-military", "formal-diplomatic", "informal"]
@@ -55,7 +55,7 @@ class _Strict(BaseModel):
 class AudioSubmission(_Strict):
     segment_id: UUID
     attempt_id: UUID
-    audio_format: Literal["opus/webm"] = "opus/webm"
+    audio_format: str = "opus/webm"
     byte_length: int = Field(gt=0)
     duration_ms: int = Field(ge=0)
     recorded_at: datetime
@@ -70,7 +70,7 @@ class AnalysisRequest(_Strict):
     source_text: str
     source_lang: Lang
     target_lang: Lang
-    register: Register
+    register: str
     domain: str
     difficulty_level: DifficultyLevel
     enqueued_at: datetime
@@ -157,7 +157,7 @@ class Segment(_Strict):
     source_text: str
     source_lang: Lang
     target_lang: Lang
-    register: Register
+    register: str
     domain: str
     difficulty_level: DifficultyLevel
     audio_path: str
@@ -191,11 +191,24 @@ class MasteryScore(_Strict):
 # ---------------------------------------------------------------------------
 
 
+class GenerationParams(_Strict):
+    """Operator-chosen parameters for the daily-training-session generator."""
+
+    topics: list[str] = Field(min_length=1)
+    user_level: int = Field(ge=1, le=5)
+    duration: Literal["short", "medium", "long"]
+    current_context: str | None = None
+    n: int = Field(default=2, ge=1, le=50)  # TEMP: reduced from 10 to save API while testing
+
+
 class PostSessionRequest(_Strict):
     learner_id: UUID
     domain: str
     source_lang: Lang
     target_lang: Lang
+    # When supplied, the gateway enqueues a generation job and the session
+    # walks the pre-generated phrases rather than the live ladder.
+    generation: GenerationParams | None = None
 
 
 class CompleteSessionResponse(_Strict):
@@ -258,6 +271,19 @@ class WSSegmentPlayPayload(_Strict):
     delay_ms: int = Field(ge=0)
 
 
+class WSGenerationProgressPayload(_Strict):
+    session_id: UUID
+    ready: int = Field(ge=0)
+    target: int = Field(ge=1)
+    state: Literal["pending", "ready", "failed"]
+
+
+class WSGenerationCompletePayload(_Strict):
+    session_id: UUID
+    count: int = Field(ge=0)
+    scenario_summary: str | None = None
+
+
 class WSAudioAckPayload(_Strict):
     attempt_id: UUID
     audio_path: str
@@ -315,6 +341,16 @@ class WSSegmentPlay(_WSBase):
     payload: WSSegmentPlayPayload
 
 
+class WSGenerationProgress(_WSBase):
+    type: Literal["generation.progress"]
+    payload: WSGenerationProgressPayload
+
+
+class WSGenerationComplete(_WSBase):
+    type: Literal["generation.complete"]
+    payload: WSGenerationCompletePayload
+
+
 class WSAudioAck(_WSBase):
     type: Literal["audio.ack"]
     payload: WSAudioAckPayload
@@ -363,13 +399,17 @@ WSEnvelope = Annotated[
     | WSMasteryUpdate
     | WSSessionCompleteAck
     | WSStateChange
+    | WSGenerationProgress
+    | WSGenerationComplete
     | WSError,
     Field(discriminator="type"),
 ]
 
 
-class WSMessage(BaseModel):
-    """Helper for parsing inbound JSON frames against the discriminated union."""
+class WSMessage(RootModel[WSEnvelope]):
+    """Helper for parsing inbound JSON frames against the discriminated union.
 
-    model_config = ConfigDict(extra="forbid")
-    root: WSEnvelope
+    Clients send a bare envelope (`{type, ts, payload}`) at the top level;
+    pydantic's RootModel lets us discriminate on it without wrapping.
+    `WSMessage.model_validate_json(text).root` returns the typed envelope.
+    """

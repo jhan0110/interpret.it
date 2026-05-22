@@ -32,7 +32,7 @@ TriggeredBy = Literal["prosody", "semantic", "both"]
 class AudioSubmission(BaseModel):
     segment_id: UUID
     attempt_id: UUID
-    audio_format: Literal["opus/webm"]
+    audio_format: str
     byte_length: int
     duration_ms: int
     recorded_at: datetime
@@ -52,7 +52,7 @@ class AnalysisRequest(BaseModel):
     source_text: str
     source_lang: Lang
     target_lang: Lang
-    register: Register
+    register: str
     domain: str
     difficulty_level: DifficultyLevel
     enqueued_at: datetime

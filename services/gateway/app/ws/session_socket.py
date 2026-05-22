@@ -13,11 +13,15 @@ and close with code 1011.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import os
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
@@ -26,9 +30,14 @@ from app.contracts.models import (
     ErrorPayload,
     WSAudioAckPayload,
     WSAudioSubmitHeader,
+    WSGenerationCompletePayload,
+    WSGenerationProgressPayload,
     WSMessage,
+    WSSegmentPlayPayload,
     WSStateChangePayload,
 )
+from app.db import sessionmaker_factory
+from app.engine.segment_picker import pick_segment_for_session
 from app.engine.state_machine import InvalidTransition, next_state
 from app.queue import enqueue_analysis
 from app.session_manager import (
@@ -37,9 +46,15 @@ from app.session_manager import (
     set_state,
     snapshot,
 )
-from app.storage import upload_attempt
+from app.storage import signed_get_url, upload_attempt
+
+GENERATION_CHANNEL = "generation_events"
 
 log = logging.getLogger(__name__)
+
+# Hardcoded for now — when sessions are configurable per learner-profile
+# this should move onto SessionRow with a default.
+SESSION_SEGMENT_TARGET = 12
 
 router = APIRouter()
 
@@ -89,6 +104,129 @@ async def _emit_state(
         "state.change",
         payload.model_dump(mode="json", by_alias=True),
     )
+    log.info("[ws.state_change.sent] session=%s from=%s to=%s reason=%s", session_id, from_state, to_state, reason)
+
+
+async def _generation_listener(ws: WebSocket, session_id: UUID) -> None:
+    """Subscribe to Redis `generation_events`; forward matching frames to `ws`.
+
+    Lossy on purpose — if the connection lags, we drop frames rather than
+    backpressure. The session row carries `generation_state` so the client
+    can still recover state by polling on reconnect.
+    """
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    redis = aioredis.from_url(redis_url, decode_responses=True)
+    pubsub = redis.pubsub()
+    try:
+        await pubsub.subscribe(GENERATION_CHANNEL)
+        async for message in pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            try:
+                event = json.loads(message["data"])
+            except (ValueError, KeyError):
+                continue
+            if str(event.get("session_id")) != str(session_id):
+                continue
+            if event.get("type") == "progress":
+                payload = WSGenerationProgressPayload(
+                    session_id=session_id,
+                    ready=int(event.get("ready", 0)),
+                    target=int(event.get("target", 10)),
+                    state=event.get("state", "pending"),  # type: ignore[arg-type]
+                )
+                await _send_envelope(
+                    ws, "generation.progress", payload.model_dump(mode="json")
+                )
+            elif event.get("type") == "complete":
+                payload_c = WSGenerationCompletePayload(
+                    session_id=session_id,
+                    count=int(event.get("count", 0)),
+                    scenario_summary=event.get("scenario_summary"),
+                )
+                await _send_envelope(
+                    ws, "generation.complete", payload_c.model_dump(mode="json")
+                )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("generation_listener for session=%s failed", session_id)
+    finally:
+        try:
+            await pubsub.unsubscribe(GENERATION_CHANNEL)
+            await pubsub.close()
+        finally:
+            await redis.close()
+
+
+async def _handle_feedback_next(
+    ws: WebSocket,
+    session_id: UUID,
+    from_state: str,
+    target_reached: bool,
+) -> None:
+    """Drive the post-feedback transition.
+
+    Walks `feedback + feedback.next → next_segment + engine.pick_segment →
+    listening` server-side, so the client only ever sends `segment.request`.
+    If `target_reached`, ends at `complete` instead of picking again.
+    """
+    trans = next_state(from_state, "feedback.next", target_reached=target_reached)  # type: ignore[arg-type]
+    await set_state(session_id, trans.to_state)
+    await _emit_state(ws, session_id, trans.from_state, trans.to_state, trans.reason)
+    if trans.to_state == "complete":
+        return
+    # `next_segment` is transient; we immediately fire engine.pick_segment.
+    pick_trans = next_state(trans.to_state, "engine.pick_segment")
+    await set_state(session_id, pick_trans.to_state)
+    await _emit_state(
+        ws, session_id, pick_trans.from_state, pick_trans.to_state, pick_trans.reason
+    )
+    await _pick_and_emit_segment(
+        ws, session_id, rollback_state=from_state
+    )
+
+
+async def _pick_and_emit_segment(
+    ws: WebSocket, session_id: UUID, rollback_state: str | None = None
+) -> None:
+    """Pick the next segment via the ladder selector and emit `segment.play`.
+
+    On miss, roll the session state back to `rollback_state` (if given) so a
+    pre-emptive state transition does not leave the session stuck, and send
+    an `error` frame so the client can surface it.
+    """
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        picked = await pick_segment_for_session(db, session_id)
+    if picked is None:
+        if rollback_state is not None:
+            await set_state(session_id, rollback_state)
+            await _emit_state(
+                ws, session_id, "listening", rollback_state, "picker found no candidate"
+            )
+        await _send_error(
+            ws,
+            "invalid_state",
+            "no candidate segment available for this learner / domain",
+            session_id=session_id,
+        )
+        return
+    audio_url = signed_get_url(picked.segment.audio_path)
+    # Calibrated delay: 2000ms base + 500ms per difficulty level above 1,
+    # clamped to [2000, 6500] for difficulty levels 1..10.
+    delay_ms = 2000 + 500 * (picked.difficulty_level - 1)
+    delay_ms = max(2000, min(6500, delay_ms))
+    payload = WSSegmentPlayPayload(
+        segment_id=picked.segment.id,
+        audio_url=audio_url,
+        duration_ms=0,
+        difficulty_level=picked.difficulty_level,  # type: ignore[arg-type]
+        delay_ms=delay_ms,
+    )
+    await _send_envelope(
+        ws, "segment.play", payload.model_dump(mode="json")
+    )
 
 
 @router.websocket("/ws/sessions/{session_id}")
@@ -96,6 +234,7 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
     await ws.accept()
 
     pending_audio_header: AudioSubmission | None = None
+    listener_task: asyncio.Task | None = None
 
     try:
         # On connect, broadcast current state so reconnecting clients sync.
@@ -107,6 +246,7 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
             return
 
         await _emit_state(ws, session_id, snap.state, snap.state, "connected")
+        listener_task = asyncio.create_task(_generation_listener(ws, session_id))
 
         while True:
             msg = await ws.receive()
@@ -157,6 +297,7 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                         segment_id=hdr.segment_id,
                         audio_path=audio_key,
                         recorded_at=hdr.recorded_at,
+                        duration_ms=hdr.duration_ms,
                     )
                 except SessionNotFound:
                     await _send_error(
@@ -225,6 +366,18 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                 continue
 
             snap = await snapshot(session_id)
+
+            # `segment.request` is the universal "give me the next segment"
+            # entry. From `idle` the state machine accepts it directly; from
+            # `feedback` we walk `feedback.next → engine.pick_segment` server-
+            # side so the client doesn't need to know about either trigger.
+            if envelope.type == "segment.request" and snap.state == "feedback":
+                target_reached = snap.segment_count >= SESSION_SEGMENT_TARGET
+                await _handle_feedback_next(
+                    ws, session_id, snap.state, target_reached
+                )
+                continue
+
             try:
                 trans = next_state(snap.state, trigger)  # type: ignore[arg-type]
             except InvalidTransition as exc:
@@ -234,6 +387,11 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                 await set_state(session_id, trans.to_state)
             await _emit_state(ws, session_id, trans.from_state, trans.to_state, trans.reason)
 
+            if envelope.type == "segment.request":
+                await _pick_and_emit_segment(
+                    ws, session_id, rollback_state=trans.from_state
+                )
+
     except WebSocketDisconnect:
         return
     except Exception:
@@ -242,3 +400,10 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
             await ws.close(code=1011)
         except RuntimeError:
             pass
+    finally:
+        if listener_task is not None:
+            listener_task.cancel()
+            try:
+                await listener_task
+            except (asyncio.CancelledError, Exception):
+                pass

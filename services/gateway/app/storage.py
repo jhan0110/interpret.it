@@ -44,7 +44,27 @@ def upload_attempt(attempt_id: UUID, audio_bytes: bytes) -> str:
 
 
 def signed_get_url(key: str, expires_in_s: int = 3600) -> str:
-    return _client().generate_presigned_url(
+    """Mint a presigned GET URL for `key`.
+
+    `MINIO_PUBLIC_ENDPOINT` (host-reachable, e.g. http://localhost:9000) is
+    used for the URL host; falls back to `MINIO_ENDPOINT` when unset. This
+    matters in docker compose where the gateway talks to MinIO over the
+    internal `minio:9000` hostname but the browser needs `localhost:9000`.
+    """
+    public_endpoint = os.getenv("MINIO_PUBLIC_ENDPOINT")
+    client = (
+        boto3.client(
+            "s3",
+            endpoint_url=public_endpoint,
+            aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
+            aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
+            config=Config(signature_version="s3v4"),
+            region_name=os.getenv("MINIO_REGION", "us-east-1"),
+        )
+        if public_endpoint
+        else _client()
+    )
+    return client.generate_presigned_url(
         "get_object",
         Params={"Bucket": _bucket(), "Key": key},
         ExpiresIn=expires_in_s,

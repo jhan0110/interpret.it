@@ -49,9 +49,13 @@ services:
       DATABASE_URL: postgresql+asyncpg://interpretit:interpretit@postgres:5432/interpretit
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: interpretit
+    volumes:
+      - ./services/gateway/app:/app/app:ro
+      - ./services/gateway/alembic:/app/alembic:ro
     ports:
       - "8000:8000"
     depends_on:
@@ -65,6 +69,7 @@ services:
   analysis:
     build:
       context: ./services/analysis
+    image: phase5-analysis:latest
     environment:
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
@@ -76,6 +81,11 @@ services:
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       USE_MOCKS: ${USE_MOCKS:-1}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      WHISPER_PROVIDER: ${WHISPER_PROVIDER:-local}
+      GROQ_WHISPER_MODEL: ${GROQ_WHISPER_MODEL:-whisper-large-v3}
+    volumes:
+      - ./services/analysis/app:/app/app:ro
     ports:
       - "8001:8001"
     depends_on:
@@ -83,29 +93,8 @@ services:
       - minio
       - gateway
 
-  arq-prosody:
-    build:
-      context: ./services/analysis
-    command: ["arq", "app.worker.WorkerSettings"]
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: interpretit
-      GATEWAY_RPC_URL: http://gateway:8000
-      ARQ_QUEUE_NAME: prosody
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
-      USE_MOCKS: ${USE_MOCKS:-1}
-    depends_on:
-      - redis
-      - minio
-      - gateway
-
   arq-semantic:
-    build:
-      context: ./services/analysis
+    image: phase5-analysis:latest
     command: ["arq", "app.worker.WorkerSettings"]
     environment:
       REDIS_URL: redis://redis:6379/0
@@ -119,6 +108,36 @@ services:
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       USE_MOCKS: ${USE_MOCKS:-1}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      WHISPER_PROVIDER: ${WHISPER_PROVIDER:-local}
+      GROQ_WHISPER_MODEL: ${GROQ_WHISPER_MODEL:-whisper-large-v3}
+    volumes:
+      - ./services/analysis/app:/app/app:ro
+    depends_on:
+      - redis
+      - minio
+      - gateway
+
+  arq-generation:
+    image: phase5-analysis:latest
+    command: ["arq", "app.worker.WorkerSettings"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: interpretit
+      GATEWAY_RPC_URL: http://gateway:8000
+      ARQ_QUEUE_NAME: generation
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      USE_MOCKS: ${USE_MOCKS:-1}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      WHISPER_PROVIDER: ${WHISPER_PROVIDER:-local}
+      GROQ_WHISPER_MODEL: ${GROQ_WHISPER_MODEL:-whisper-large-v3}
+    volumes:
+      - ./services/analysis/app:/app/app:ro
     depends_on:
       - redis
       - minio

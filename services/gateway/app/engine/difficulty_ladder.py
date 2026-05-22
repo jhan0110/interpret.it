@@ -134,3 +134,46 @@ def select_next_segment(
 def can_promote_above_8(attempts_at_level: int, mean_score_at_level: float) -> bool:
     """Anti-fluke gate for promotion from level 8 → 9."""
     return attempts_at_level >= 3 and mean_score_at_level >= 0.75
+
+
+def target_level_from_mastery(mastery: float) -> int:
+    """Map a [0,1] mastery score onto the 1..10 ladder.
+
+    Linear: 0.0 → 1, 1.0 → 10. A first-time learner (default 0.5) lands
+    near the middle of the ladder, matching the operator-facing seed data.
+    """
+    return max(1, min(10, int(round(1 + mastery * 9))))
+
+
+@dataclass(frozen=True)
+class AttemptScoreView:
+    """Minimal projection of an AttemptRow needed to roll up segment history.
+
+    Decoupling from SQLAlchemy keeps `difficulty_ladder.py` pure-Python and
+    importable from environments that do not have the DB stack installed.
+    """
+
+    segment_id: UUID
+    overall_score: float | None
+
+
+def aggregate_history(
+    attempts: list[AttemptScoreView],
+) -> dict[UUID, LearnerHistoryItem]:
+    """Average per-segment scores into a `select_next_segment`-compatible map.
+
+    Attempts whose `overall_score` is None are skipped, which keeps an
+    unscored attempt from biasing the weighted-random selector.
+    """
+    by_seg: dict[UUID, list[float]] = {}
+    for a in attempts:
+        if a.overall_score is None:
+            continue
+        by_seg.setdefault(a.segment_id, []).append(float(a.overall_score))
+    history: dict[UUID, LearnerHistoryItem] = {}
+    for seg_id, scores in by_seg.items():
+        avg = sum(scores) / len(scores)
+        history[seg_id] = LearnerHistoryItem(
+            segment_id=seg_id, recent_score=avg, last_seen_embedding=None
+        )
+    return history

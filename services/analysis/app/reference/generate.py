@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Literal
 
 from pydantic import BaseModel
 
 from ..llm.client import structured_generate
+
+log = logging.getLogger(__name__)
 
 
 class ReferenceBundle(BaseModel):
@@ -66,18 +70,40 @@ def generate_reference(
 
     Uses tool_use to enforce structured output — the model MUST call emit_reference.
     """
+    t0 = time.monotonic()
+    log.info(
+        "[reference.begin] segment_text_len=%d source_lang=%s target_lang=%s",
+        len(source_text),
+        source_lang,
+        target_lang,
+    )
+
     system = _SYSTEM_PROMPT.format(
         source_lang=source_lang,
         target_lang=target_lang,
         register=register,
         domain=domain,
     )
+
+    log.info("[reference.claude.begin] source_lang=%s target_lang=%s", source_lang, target_lang)
+    t_claude = time.monotonic()
     inp = structured_generate(
         system=system,
         user=f"Source text ({source_lang}):\n\n{source_text}",
         tool=_REFERENCE_TOOL,
     )
-    return ReferenceBundle(
+    claude_ms = int((time.monotonic() - t_claude) * 1000)
+    log.info("[reference.claude.done] took=%dms", claude_ms)
+
+    bundle = ReferenceBundle(
         canonical=inp["canonical_translation"],
         paraphrases=inp["acceptable_paraphrases"],
     )
+    total_ms = int((time.monotonic() - t0) * 1000)
+    log.info(
+        "[reference.done] canonical_len=%d paraphrases=%d total_took=%dms",
+        len(bundle.canonical),
+        len(bundle.paraphrases),
+        total_ms,
+    )
+    return bundle

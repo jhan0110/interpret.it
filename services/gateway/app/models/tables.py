@@ -107,6 +107,13 @@ class SessionRow(Base):
         ForeignKey("segments.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Pre-generated 10-pack for "daily training session" sessions. When set,
+    # the picker walks these in order rather than querying the ladder.
+    planned_segment_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    generation_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    generation_state: Mapped[str] = mapped_column(
+        String, nullable=False, default="none"
+    )
 
     learner: Mapped[LearnerRow] = relationship(lazy="joined")
 
@@ -133,6 +140,7 @@ class AttemptRow(Base):
         nullable=False,
     )
     audio_path: Mapped[str] = mapped_column(String, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     recorded_at: Mapped[datetime] = _ts()
     prosody_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     semantic_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -165,6 +173,72 @@ class MasteryScoreRow(Base):
 
     __table_args__ = (
         CheckConstraint("mastery BETWEEN 0 AND 1", name="mastery_scores_mastery_chk"),
+    )
+
+
+class VocabEntryRow(Base):
+    __tablename__ = "vocab_entries"
+
+    id: Mapped[UUID] = _uuid_pk()
+    term: Mapped[str] = mapped_column(String, nullable=False)
+    definition: Mapped[str] = mapped_column(String, nullable=False)
+    domain: Mapped[str] = mapped_column(String, nullable=False)
+    source_lang: Mapped[str] = mapped_column(String, nullable=False)
+    target_lang: Mapped[str] = mapped_column(String, nullable=False)
+    register: Mapped[str] = mapped_column(String, nullable=False)
+    origin: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = _ts(default_now=True)
+
+    __table_args__ = (
+        Index("ix_vocab_entries_domain_dir", "domain", "source_lang", "target_lang"),
+    )
+
+
+class LearnerTopicRow(Base):
+    __tablename__ = "learner_topics"
+
+    learner_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("learners.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    domain: Mapped[str] = mapped_column(String, primary_key=True)
+    added_at: Mapped[datetime] = _ts(default_now=True)
+
+
+class LearnerVocabDeckRow(Base):
+    __tablename__ = "learner_vocab_deck"
+
+    id: Mapped[UUID] = _uuid_pk()
+    learner_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("learners.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    vocab_entry_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("vocab_entries.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    ease_factor: Mapped[float] = mapped_column(nullable=False, default=2.5)
+    repetitions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_review_at: Mapped[datetime] = _ts(default_now=True)
+    last_grade: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_reviewed_at: Mapped[datetime | None] = _ts(nullable=True)
+    added_by: Mapped[str] = mapped_column(String, nullable=False)
+    gap_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_attempt_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("attempts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = _ts(default_now=True)
+    updated_at: Mapped[datetime] = _ts(default_now=True)
+
+    __table_args__ = (
+        Index("ix_lvd_learner_due", "learner_id", "next_review_at"),
+        Index("ix_lvd_learner_entry", "learner_id", "vocab_entry_id"),
     )
 
 
