@@ -27,10 +27,6 @@ RUN pip install --upgrade pip \
 # Run that once after build; the models cache in /root/.cache and persist
 # across container restarts via the named volume if you mount one.
 
-# spaCy language models (referenced in CLAUDE.md; required for Phase 5+).
-RUN python -m spacy download ko_core_news_lg && \
-    python -m spacy download en_core_web_trf
-
 COPY app ./app
 COPY scripts ./scripts
 

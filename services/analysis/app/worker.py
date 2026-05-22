@@ -27,7 +27,7 @@ from app.evaluation.evaluate import evaluate
 from app.mocks.handlers import get_mock_semantic_result
 from app.prosody.word_prosody import compute_prosody_from_words
 from app.reference.generate import ReferenceBundle, generate_reference
-from app.rpc.gateway_client import push_prosody_result, push_semantic_result, push_segment_embeddings
+from app.rpc.gateway_client import push_prosody_result, push_semantic_result
 from app.tts.elevenlabs_tts import generate_feedback_audio
 from app.vocab.extract import run_vocab_extraction
 

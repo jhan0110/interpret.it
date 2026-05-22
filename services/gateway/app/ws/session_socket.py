@@ -42,9 +42,7 @@ from app.engine.state_machine import InvalidTransition, next_state
 from app.queue import enqueue_analysis
 from app.session_manager import (
     SessionNotFound,
-    advance_segment,
     persist_attempt,
-    pick_segment,
     set_state,
     snapshot,
 )
@@ -59,69 +57,6 @@ log = logging.getLogger(__name__)
 SESSION_SEGMENT_TARGET = 12
 
 router = APIRouter()
-
-
-def _delay_ms(difficulty_level: int) -> int:
-    """Working-memory delay in ms: 2 s at level 1, scaling to 8 s at level 10."""
-    return 2_000 + (difficulty_level - 1) * 667
-
-
-async def _handle_segment_request(ws: WebSocket, session_id: UUID) -> None:
-    """Pick the next segment and emit segment.play.
-
-    Handles two cases:
-    - idle → first segment: transition via "segment.request"
-    - feedback → next segment: transition via "feedback.next" then "engine.pick_segment"
-    """
-    snap = await snapshot(session_id)
-
-    if snap.state not in ("idle", "feedback"):
-        await _send_error(
-            ws,
-            "invalid_state",
-            f"segment.request not valid from state {snap.state!r}",
-            session_id=session_id,
-        )
-        return
-
-    if snap.state == "feedback":
-        trans = next_state(snap.state, "feedback.next", target_reached=False)
-        await set_state(session_id, trans.to_state)
-        await _emit_state(ws, session_id, trans.from_state, trans.to_state, trans.reason)
-        snap = await snapshot(session_id)
-
-    seg = await pick_segment(session_id, snap.domain, snap.learner_id)
-
-    if seg is None:
-        await _send_error(
-            ws,
-            "internal",
-            "no candidate segment available in this domain",
-            session_id=session_id,
-        )
-        return
-
-    snap = await advance_segment(session_id, seg.id)
-
-    if snap.state == "idle":
-        trans = next_state("idle", "segment.request")
-    else:
-        trans = next_state("next_segment", "engine.pick_segment", has_next_segment=True)
-    await set_state(session_id, trans.to_state)
-    await _emit_state(ws, session_id, trans.from_state, trans.to_state, trans.reason)
-
-    audio_url = signed_get_url(seg.audio_path)
-    await _send_envelope(
-        ws,
-        "segment.play",
-        WSSegmentPlayPayload(
-            segment_id=seg.id,
-            audio_url=audio_url,
-            duration_ms=0,
-            difficulty_level=seg.difficulty_level,
-            delay_ms=_delay_ms(seg.difficulty_level),
-        ).model_dump(mode="json"),
-    )
 
 
 async def _send_envelope(ws: WebSocket, type_: str, payload: Any) -> None:
@@ -418,13 +353,11 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                 pending_audio_header = envelope.payload
                 continue
 
-            if isinstance(envelope, WSSegmentRequest):
-                await _handle_segment_request(ws, session_id)
-                continue
-
-            # Remaining control frames drive the state machine by trigger name.
+            # All other control frames drive the state machine; pick the
+            # right trigger by envelope type.
             trigger_map = {
                 "session.start": "session.start",
+                "segment.request": "segment.request",
                 "recording.begin": "playback.finished",
                 "session.complete": "session.complete",
             }
