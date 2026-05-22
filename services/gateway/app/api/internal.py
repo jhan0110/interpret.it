@@ -4,29 +4,32 @@ Analysis never writes the DB directly. When a worker finishes a prosody
 or semantic job, it POSTs the result JSON to the gateway, which:
 
 1. Persists into `attempts.prosody_result` / `attempts.semantic_result`.
-2. Updates session state when both pipelines are closed.
-3. Emits the matching `ProsodyResult` / `SemanticResult` and (when both
-   close) the `MasteryUpdate` to the WS connection.
+2. Publishes the matching `prosody.result` / `semantic.result` envelope
+   on the Redis `analysis_events` channel.
+3. Once both pipelines close, transitions the session `analyzing ->
+   feedback` and publishes the `state.change` envelope.
 
-For Phase 2 we persist + record. Live WS fan-out is wired in
-`session_socket.py` via a pub/sub layer in a follow-up. This endpoint
-returns 202 on accept.
+The session WebSocket handler (`session_socket.py`) subscribes to
+`analysis_events` and forwards envelopes to the live connection.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 log = logging.getLogger(__name__)
 
-from app.contracts.models import ProsodyResult, SemanticResult
+from app.contracts.models import ProsodyResult, SemanticResult, WSStateChangePayload
 from app.db import sessionmaker_factory
 from app.engine.difficulty_ladder import (
     combined_score,
@@ -42,8 +45,33 @@ from app.models.tables import (
     SessionRow,
     VocabEntryRow,
 )
+from app.session_manager import set_state
 
 router = APIRouter(prefix="/internal", tags=["internal"])
+
+ANALYSIS_CHANNEL = "analysis_events"
+_REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+async def _publish_ws(session_id: UUID, envelope: dict) -> None:
+    """Publish a ready-to-send WS envelope on the `analysis_events` channel.
+
+    The session WebSocket handler subscribes and forwards the envelope to
+    the matching live connection. Lossy on purpose — a disconnected client
+    recovers state from the session row on reconnect.
+    """
+    client = aioredis.from_url(_REDIS_URL, decode_responses=True)
+    try:
+        await client.publish(
+            ANALYSIS_CHANNEL,
+            json.dumps({"session_id": str(session_id), "envelope": envelope}),
+        )
+    finally:
+        await client.aclose()
 
 
 class ParaphraseInsert(BaseModel):
@@ -230,7 +258,32 @@ async def _close_if_ready(attempt_id: UUID) -> None:
         _ = difficulty_delta(old, new)  # consumed when picking the next segment
 
         row.closed_at = datetime.now(UTC)
+
+        session_id = row.session_id
+        # Only drive analyzing -> feedback while the learner is still in the
+        # session; if they ended it early, leave the terminal state alone.
+        notify = session_row.state == "analyzing"
         await db.commit()
+
+    if not notify:
+        return
+
+    await set_state(session_id, "feedback")
+    state_change = WSStateChangePayload(
+        session_id=session_id,
+        from_="analyzing",  # type: ignore[arg-type]
+        to="feedback",  # type: ignore[arg-type]
+        reason="both pipelines closed",
+    )
+    await _publish_ws(
+        session_id,
+        {
+            "type": "state.change",
+            "ts": _now_iso(),
+            "payload": state_change.model_dump(mode="json", by_alias=True),
+        },
+    )
+    log.info("[gw.close_if_ready.feedback] session=%s", session_id)
 
 
 class VocabExtractionItem(BaseModel):
@@ -330,9 +383,18 @@ async def prosody_result(result: ProsodyResult) -> dict:
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="attempt not found")
+        session_id = row.session_id
         row.prosody_result = result.model_dump(mode="json")
         await db.commit()
     log.info("[gw.internal.prosody_result.persisted] attempt=%s", result.attempt_id)
+    await _publish_ws(
+        session_id,
+        {
+            "type": "prosody.result",
+            "ts": _now_iso(),
+            "payload": result.model_dump(mode="json"),
+        },
+    )
     await _close_if_ready(result.attempt_id)
     return {"accepted": True}
 
@@ -347,8 +409,17 @@ async def semantic_result(result: SemanticResult) -> dict:
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="attempt not found")
+        session_id = row.session_id
         row.semantic_result = result.model_dump(mode="json")
         await db.commit()
     log.info("[gw.internal.semantic_result.persisted] attempt=%s", result.attempt_id)
+    await _publish_ws(
+        session_id,
+        {
+            "type": "semantic.result",
+            "ts": _now_iso(),
+            "payload": result.model_dump(mode="json"),
+        },
+    )
     await _close_if_ready(result.attempt_id)
     return {"accepted": True}

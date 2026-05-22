@@ -49,6 +49,7 @@ from app.session_manager import (
 from app.storage import signed_get_url, upload_attempt
 
 GENERATION_CHANNEL = "generation_events"
+ANALYSIS_CHANNEL = "analysis_events"
 
 log = logging.getLogger(__name__)
 
@@ -159,6 +160,42 @@ async def _generation_listener(ws: WebSocket, session_id: UUID) -> None:
             await redis.close()
 
 
+async def _analysis_listener(ws: WebSocket, session_id: UUID) -> None:
+    """Subscribe to Redis `analysis_events`; forward this session's frames to `ws`.
+
+    The internal RPC endpoints (`app.api.internal`) publish prosody/semantic
+    results and the `analyzing -> feedback` state change here once analysis
+    lands. Each event carries a pre-built WS envelope, forwarded verbatim.
+    """
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    redis = aioredis.from_url(redis_url, decode_responses=True)
+    pubsub = redis.pubsub()
+    try:
+        await pubsub.subscribe(ANALYSIS_CHANNEL)
+        async for message in pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            try:
+                event = json.loads(message["data"])
+            except (ValueError, KeyError):
+                continue
+            if str(event.get("session_id")) != str(session_id):
+                continue
+            envelope = event.get("envelope")
+            if isinstance(envelope, dict):
+                await ws.send_json(envelope)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("analysis_listener for session=%s failed", session_id)
+    finally:
+        try:
+            await pubsub.unsubscribe(ANALYSIS_CHANNEL)
+            await pubsub.close()
+        finally:
+            await redis.close()
+
+
 async def _handle_feedback_next(
     ws: WebSocket,
     session_id: UUID,
@@ -235,6 +272,7 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
 
     pending_audio_header: AudioSubmission | None = None
     listener_task: asyncio.Task | None = None
+    analysis_task: asyncio.Task | None = None
 
     try:
         # On connect, broadcast current state so reconnecting clients sync.
@@ -247,6 +285,7 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
 
         await _emit_state(ws, session_id, snap.state, snap.state, "connected")
         listener_task = asyncio.create_task(_generation_listener(ws, session_id))
+        analysis_task = asyncio.create_task(_analysis_listener(ws, session_id))
 
         while True:
             msg = await ws.receive()
@@ -372,7 +411,10 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
             # `feedback` we walk `feedback.next → engine.pick_segment` server-
             # side so the client doesn't need to know about either trigger.
             if envelope.type == "segment.request" and snap.state == "feedback":
-                target_reached = snap.segment_count >= SESSION_SEGMENT_TARGET
+                # A planned session ends at its plan length; an open-ended
+                # (ladder-only) session falls back to SESSION_SEGMENT_TARGET.
+                target = snap.planned_count or SESSION_SEGMENT_TARGET
+                target_reached = snap.segment_count >= target
                 await _handle_feedback_next(
                     ws, session_id, snap.state, target_reached
                 )
@@ -401,9 +443,10 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
         except RuntimeError:
             pass
     finally:
-        if listener_task is not None:
-            listener_task.cancel()
-            try:
-                await listener_task
-            except (asyncio.CancelledError, Exception):
-                pass
+        for task in (listener_task, analysis_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass

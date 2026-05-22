@@ -205,11 +205,11 @@ async def pick_segment_for_session(
     if session_row is None:
         return None
 
-    # Pre-generated path wins when present.
+    # A planned (daily-training) session is strictly bounded by its plan:
+    # once the plan is exhausted we return None rather than falling through
+    # to the open-ended ladder picker.
     if session_row.planned_segment_ids:
-        planned = await _pick_from_plan(db, session_row)
-        if planned is not None:
-            return planned
+        return await _pick_from_plan(db, session_row)
 
     mastery_row = (
         await db.execute(

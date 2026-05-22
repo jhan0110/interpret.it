@@ -40,6 +40,7 @@ class SessionSnapshot:
     current_register: str
     current_difficulty: int
     segment_count: int
+    planned_count: int
 
 
 async def _session_row(session: AsyncSession, sid: UUID) -> SessionRow:
@@ -77,6 +78,7 @@ async def snapshot(session_id: UUID) -> SessionSnapshot:
             current_register=seg_register,
             current_difficulty=seg_difficulty,
             segment_count=row.segment_count,
+            planned_count=len(row.planned_segment_ids or []),
         )
 
 
