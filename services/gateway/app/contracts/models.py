@@ -39,6 +39,14 @@ ErrorCode = Literal[
     "analysis_failed",
     "internal",
 ]
+SessionMode = Literal["interpretation", "memorization"]
+KeyPointImportance = Literal["primary", "secondary"]
+ReplayDeniedReason = Literal[
+    "budget_exhausted",
+    "already_replayed",
+    "wrong_mode",
+    "invalid_state",
+]
 Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 DifficultyLevel = Annotated[int, Field(ge=1, le=10)]
 
@@ -75,6 +83,7 @@ class AnalysisRequest(_Strict):
     difficulty_level: DifficultyLevel
     enqueued_at: datetime
     asr_prompt: str | None = None
+    mode: SessionMode = "interpretation"
 
 
 class ProsodyResult(_Strict):
@@ -103,12 +112,20 @@ class FollowupExercise(_Strict):
     prompt_audio_path: str
 
 
+class KeyPoint(_Strict):
+    text: str
+    recalled: bool
+    importance: KeyPointImportance
+
+
 class SemanticResult(_Strict):
     attempt_id: UUID
+    mode: SessionMode = "interpretation"
     transcript: str
     reference_translation: str
     acceptable_paraphrases: list[str]
     errors: list[SemanticError]
+    key_points: list[KeyPoint] | None = None
     overall_score: Unit
     feedback_text: str
     feedback_audio_path: str
@@ -143,6 +160,7 @@ class Learner(_Strict):
 class Session(_Strict):
     id: UUID
     learner_id: UUID
+    mode: SessionMode = "interpretation"
     state: SessionState
     domain: str
     target_lang: Lang
@@ -150,6 +168,7 @@ class Session(_Strict):
     started_at: datetime
     completed_at: datetime | None
     segment_count: int = Field(ge=0)
+    replays_budget: int = Field(default=5, ge=0)
     current_segment_id: UUID | None
 
 
@@ -175,6 +194,7 @@ class Attempt(_Strict):
     recorded_at: datetime
     prosody_result: ProsodyResult | None
     semantic_result: SemanticResult | None
+    replayed: bool = False
     closed_at: datetime | None
 
 
@@ -207,6 +227,7 @@ class PostSessionRequest(_Strict):
     domain: str
     source_lang: Lang
     target_lang: Lang
+    mode: SessionMode = "interpretation"
     # When supplied, the gateway enqueues a generation job and the session
     # walks the pre-generated phrases rather than the live ladder.
     generation: GenerationParams | None = None
@@ -312,6 +333,24 @@ class ErrorPayload(_Strict):
     session_id: UUID | None = None
 
 
+class WSReplayRequestPayload(_Strict):
+    session_id: UUID
+    attempt_id: UUID
+
+
+class WSReplayGrantedPayload(_Strict):
+    session_id: UUID
+    attempt_id: UUID
+    replays_remaining: int = Field(ge=0)
+
+
+class WSReplayDeniedPayload(_Strict):
+    session_id: UUID
+    attempt_id: UUID
+    reason: ReplayDeniedReason
+    replays_remaining: int = Field(ge=0)
+
+
 class WSSessionStart(_WSBase):
     type: Literal["session.start"]
     payload: WSSessionStartPayload
@@ -382,6 +421,21 @@ class WSStateChange(_WSBase):
     payload: WSStateChangePayload
 
 
+class WSReplayRequest(_WSBase):
+    type: Literal["replay.request"]
+    payload: WSReplayRequestPayload
+
+
+class WSReplayGranted(_WSBase):
+    type: Literal["replay.granted"]
+    payload: WSReplayGrantedPayload
+
+
+class WSReplayDenied(_WSBase):
+    type: Literal["replay.denied"]
+    payload: WSReplayDeniedPayload
+
+
 class WSError(_WSBase):
     type: Literal["error"]
     payload: ErrorPayload
@@ -402,6 +456,9 @@ WSEnvelope = Annotated[
     | WSStateChange
     | WSGenerationProgress
     | WSGenerationComplete
+    | WSReplayRequest
+    | WSReplayGranted
+    | WSReplayDenied
     | WSError,
     Field(discriminator="type"),
 ]

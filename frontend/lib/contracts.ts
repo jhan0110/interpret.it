@@ -14,6 +14,16 @@ export interface AudioSubmission {
   recorded_at: string;
 }
 
+export type SessionMode = "interpretation" | "memorization";
+
+export type KeyPointImportance = "primary" | "secondary";
+
+export interface KeyPoint {
+  text: string;
+  recalled: boolean;
+  importance: KeyPointImportance;
+}
+
 export interface AnalysisRequest {
   attempt_id: string;
   segment_id: string;
@@ -27,6 +37,8 @@ export interface AnalysisRequest {
   domain: string;
   difficulty_level: number;
   enqueued_at: string;
+  asr_prompt?: string | null;
+  mode?: SessionMode;
 }
 
 export interface ProsodyResult {
@@ -57,10 +69,12 @@ export interface FollowupExercise {
 
 export interface SemanticResult {
   attempt_id: string;
+  mode: SessionMode;
   transcript: string;
   reference_translation: string;
   acceptable_paraphrases: string[];
   errors: SemanticError[];
+  key_points: KeyPoint[] | null;
   overall_score: number;
   feedback_text: string;
   feedback_audio_path: string;
@@ -92,6 +106,7 @@ export type SessionState = "idle" | "listening" | "recording" | "analyzing" | "f
 export interface Session {
   id: string;
   learner_id: string;
+  mode: SessionMode;
   state: SessionState;
   domain: string;
   target_lang: "ko" | "en";
@@ -99,6 +114,7 @@ export interface Session {
   started_at: string;
   completed_at: string | null;
   segment_count: number;
+  replays_budget: number;
   current_segment_id: string | null;
 }
 
@@ -124,6 +140,7 @@ export interface Attempt {
   recorded_at: string;
   prosody_result: ProsodyResult | null;
   semantic_result: SemanticResult | null;
+  replayed: boolean;
   closed_at: string | null;
 }
 
@@ -151,6 +168,7 @@ export interface PostSessionRequest {
   domain: string;
   source_lang: "ko" | "en";
   target_lang: "ko" | "en";
+  mode?: SessionMode;
   generation?: GenerationParams | null;
 }
 
@@ -303,6 +321,35 @@ export interface WSGenerationComplete {
   };
 }
 
+export type ReplayDeniedReason =
+  | "budget_exhausted"
+  | "already_replayed"
+  | "wrong_mode"
+  | "invalid_state";
+
+export interface WSReplayRequest {
+  type: "replay.request";
+  ts: string;
+  payload: { session_id: string; attempt_id: string };
+}
+
+export interface WSReplayGranted {
+  type: "replay.granted";
+  ts: string;
+  payload: { session_id: string; attempt_id: string; replays_remaining: number };
+}
+
+export interface WSReplayDenied {
+  type: "replay.denied";
+  ts: string;
+  payload: {
+    session_id: string;
+    attempt_id: string;
+    reason: ReplayDeniedReason;
+    replays_remaining: number;
+  };
+}
+
 export interface WSError {
   type: "error";
   ts: string;
@@ -324,6 +371,8 @@ export type ServerMessage =
   | WSStateChange
   | WSGenerationProgress
   | WSGenerationComplete
+  | WSReplayGranted
+  | WSReplayDenied
   | WSError;
 
 export type ClientMessage =
@@ -331,4 +380,5 @@ export type ClientMessage =
   | WSSegmentRequest
   | WSRecordingBegin
   | WSAudioSubmitHeader
+  | WSReplayRequest
   | WSSessionComplete;

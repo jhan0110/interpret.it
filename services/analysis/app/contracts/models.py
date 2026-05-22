@@ -27,6 +27,8 @@ ErrorType = Literal[
 Severity = Literal["minor", "moderate", "critical"]
 FollowupType = Literal["repeat", "rephrase", "drill_term", "contextual_qa"]
 TriggeredBy = Literal["prosody", "semantic", "both"]
+SessionMode = Literal["interpretation", "memorization"]
+KeyPointImportance = Literal["primary", "secondary"]
 
 
 class AudioSubmission(BaseModel):
@@ -57,6 +59,7 @@ class AnalysisRequest(BaseModel):
     difficulty_level: DifficultyLevel
     enqueued_at: datetime
     asr_prompt: str | None = None
+    mode: SessionMode = "interpretation"
 
 
 class ProsodyResult(BaseModel):
@@ -85,12 +88,20 @@ class FollowupExercise(BaseModel):
     prompt_audio_path: str
 
 
+class KeyPoint(BaseModel):
+    text: str
+    recalled: bool
+    importance: KeyPointImportance
+
+
 class SemanticResult(BaseModel):
     attempt_id: UUID
+    mode: SessionMode = "interpretation"
     transcript: str
     reference_translation: str
     acceptable_paraphrases: list[str]
     errors: list[SemanticResultError]
+    key_points: list[KeyPoint] | None = None
     overall_score: BoundedFloat
     feedback_text: str
     feedback_audio_path: str

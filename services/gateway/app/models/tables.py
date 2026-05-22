@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -96,12 +97,14 @@ class SessionRow(Base):
         nullable=False,
     )
     state: Mapped[str] = mapped_column(String, nullable=False, default="idle")
+    mode: Mapped[str] = mapped_column(String, nullable=False, default="interpretation")
     domain: Mapped[str] = mapped_column(String, nullable=False)
     source_lang: Mapped[str] = mapped_column(String, nullable=False)
     target_lang: Mapped[str] = mapped_column(String, nullable=False)
     started_at: Mapped[datetime] = _ts(default_now=True)
     completed_at: Mapped[datetime | None] = _ts(nullable=True)
     segment_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    replays_budget: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     current_segment_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("segments.id", ondelete="SET NULL"),
@@ -144,6 +147,7 @@ class AttemptRow(Base):
     recorded_at: Mapped[datetime] = _ts()
     prosody_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     semantic_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    replayed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     closed_at: Mapped[datetime | None] = _ts(nullable=True)
 
     __table_args__ = (

@@ -71,7 +71,8 @@
     "domain":           "string",                  // e.g. "logistics", "diplomatic", "intel-brief"
     "difficulty_level": "integer 1-10",
     "enqueued_at":      "iso8601",
-    "asr_prompt":       "string | null"            // domain-vocabulary hint for Whisper priming (optional)
+    "asr_prompt":       "string | null",           // domain-vocabulary hint for Whisper priming (optional)
+    "mode":             "interpretation | memorization"  // routes worker to evaluate() vs evaluate_memorization()
   },
 
   // Analysis → Gateway. Fast path. Target latency ≤2s.
@@ -88,8 +89,13 @@
   },
 
   // Analysis → Gateway. Full path. Target latency ≤12s.
+  // `mode` discriminates the two evaluator paths:
+  //   - "interpretation" → `errors` populated (today's behavior); `key_points` null
+  //   - "memorization"   → `key_points` populated (recall breakdown); `errors` typically []
+  // Either mode produces `overall_score`, `feedback_text`, `transcript`, and `reference_translation`.
   "SemanticResult": {
     "attempt_id":             "uuid",
+    "mode":                   "interpretation | memorization",
     "transcript":             "string",
     "reference_translation":  "string",
     "acceptable_paraphrases": ["string"],
@@ -100,6 +106,13 @@
         "user_span":   "string | null",
         "severity":    "minor | moderate | critical",
         "explanation": "string"
+      }
+    ],
+    "key_points": [
+      {
+        "text":       "string",                  // the canonical key-point phrase, in source language
+        "recalled":   "bool",                    // true if the learner recovered it (paraphrase OK)
+        "importance": "primary | secondary"      // primary points carry more weight in the recall score
       }
     ],
     "overall_score":       "float 0-1",
@@ -140,6 +153,7 @@
   "Session": {
     "id":           "uuid",
     "learner_id":   "uuid",
+    "mode":         "interpretation | memorization",  // selects runner + evaluator
     "state":        "idle | listening | recording | analyzing | feedback | next_segment | complete",
     "domain":       "string",
     "target_lang":  "ko | en",
@@ -147,6 +161,7 @@
     "started_at":   "iso8601",
     "completed_at": "iso8601 | null",
     "segment_count":"integer",
+    "replays_budget": "integer",                      // initial budget; remaining = budget - count(attempts.replayed=true)
     "current_segment_id": "uuid | null"
   },
 
@@ -172,6 +187,7 @@
     "recorded_at":     "iso8601",
     "prosody_result":  "ProsodyResult | null",
     "semantic_result": "SemanticResult | null",
+    "replayed":        "bool",                     // true if learner used a replay on this segment
     "closed_at":       "iso8601 | null"
   },
 
@@ -193,6 +209,7 @@
     "domain":      "string",
     "source_lang": "ko | en",
     "target_lang": "ko | en",
+    "mode":        "interpretation | memorization",  // defaults to "interpretation" if omitted
     "generation":  "REST.GenerationParams | null"
   },
 
@@ -371,6 +388,38 @@
       "session_id":       "uuid",
       "count":            "integer 0-",
       "scenario_summary": "string | null"
+    }
+  },
+
+  // Client requests a replay of the current segment audio. Memorization
+  // sessions only. The gateway checks the per-segment cap (1 replay) and
+  // the per-session budget (default 5), then responds with granted/denied.
+  // The client already holds the audio URL from the prior `segment.play`,
+  // so neither granted nor denied carries it.
+  "WSMessage.ReplayRequest": {
+    "type": "replay.request",
+    "payload": {
+      "session_id": "uuid",
+      "attempt_id": "uuid"
+    }
+  },
+
+  "WSMessage.ReplayGranted": {
+    "type": "replay.granted",
+    "payload": {
+      "session_id":        "uuid",
+      "attempt_id":        "uuid",
+      "replays_remaining": "integer"
+    }
+  },
+
+  "WSMessage.ReplayDenied": {
+    "type": "replay.denied",
+    "payload": {
+      "session_id":        "uuid",
+      "attempt_id":        "uuid",
+      "reason":            "budget_exhausted | already_replayed | wrong_mode | invalid_state",
+      "replays_remaining": "integer"
     }
   },
 
