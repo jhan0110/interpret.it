@@ -258,3 +258,116 @@ docker compose exec postgres psql -U interpretit -d interpretit -c \
 # Tail key logs by tag
 docker compose logs -f arq-semantic | grep -E '\[prosody.derived\]|\[asr.groq\.|\[eval\.|\[gw.close_if_ready'
 ```
+
+---
+
+# Phase 8 — Merge to main, three blocker fixes, feedback page, context-aware ASR
+
+State as of **2026-05-22**. Phase 5/6/7 work merged into `main`. Three blocking session-flow bugs fixed (infinite analysis spinner, segment-count overrun, no feedback delivery). Feedback delivery redesigned from "deferred TTS audio" to a review-style **in-session text page**, with the `(session)` no-text rule amended to match. Context-aware ASR added (domain-vocabulary Whisper priming).
+
+The four feature changes below are **uncommitted on `worktree-phase5`** on top of commit `6810cc7`. The merge itself is committed on `main`.
+
+## What shipped since 2026-05-21
+
+### Merge worktree-phase5 → main (committed)
+- `worktree-phase5` HEAD bumped from `63abe05` to **`6810cc7` `feat(phase5): learner surface, content generation, Groq ASR pipeline`** — single commit consolidating ~79 files (~6,166 insertions): vocab deck, learner hub, content generation, segment picker, Groq ASR, schema migrations 0002–0004. Junk excluded (`.env.bak`, `docker-compose.yml.bak`, `frontend/frontend/`).
+- Merged into `main` with `-X theirs` to honor "worktree is the verified build." `main` history now ends at **`43a4fe5` `fix: align merged files to the worktree build`** (after merge commit `ffb7761`). The superseded `services/analysis/app/embeddings/` package from `main`'s old `933d930` was removed in favor of the worktree's `embeddings.py` module. `git diff HEAD worktree-phase5` is empty — `main`'s tree matches the worktree's tree exactly at that point.
+- `main`'s prior stray uncommitted edits (a defunct in-process `pubsub.py` analysis-fix attempt + ad-hoc docker edits) were discarded — superseded by the worktree's own versions and the proper fix below.
+
+### Fix: infinite analysis spinner (`analyzing → feedback`)
+- **Root cause**: `internal.py` persisted prosody/semantic results to the DB but the WebSocket layer was never notified. The state machine never transitioned out of `analyzing`, so the frontend's `state === "analyzing"` spinner gate (`SessionRunner.tsx:504`) never released. `internal.py`'s docstring openly admitted the WS fan-out was deferred "in a follow-up."
+- **Fix** — Redis pub/sub mirroring the existing `_generation_listener` pattern (the generation flow already used a `generation_events` channel; we follow the same shape):
+  - `services/gateway/app/api/internal.py`: `prosody_result` and `semantic_result` now publish a ready-to-send WS envelope on the new Redis `analysis_events` channel after persisting. `_close_if_ready` transitions the session `analyzing → feedback` (via `set_state`) once both pipelines close and publishes a `state.change` envelope. Guarded by `notify = session_row.state == "analyzing"` so a learner ending the session early isn't yanked out of `complete`.
+  - `services/gateway/app/ws/session_socket.py`: new `_analysis_listener(ws, session_id)` — a near-copy of `_generation_listener` — subscribes to `analysis_events`, filters by `session_id`, forwards envelopes verbatim to the live socket. Started alongside `listener_task` and cancelled in the same `finally` block.
+  - New constant `ANALYSIS_CHANNEL = "analysis_events"` co-located with `GENERATION_CHANNEL`.
+
+### Fix: planned-session "Segment 3 of 2" overrun
+- **Root cause**: two compounding issues.
+  1. `session_socket.py` had `SESSION_SEGMENT_TARGET = 12` hardcoded, so a 2-phrase planned session wasn't `target_reached` until 12 segments.
+  2. `pick_segment_for_session` fell through to the open-ended ladder picker once `_pick_from_plan` returned `None`, serving arbitrary extra segments from the general pool.
+- **Fix**:
+  - `services/gateway/app/engine/segment_picker.py`: planned sessions now return `_pick_from_plan(...)` directly — strictly bounded by their plan, no ladder fallthrough.
+  - `services/gateway/app/session_manager.py`: `SessionSnapshot` gains `planned_count: int = len(row.planned_segment_ids or [])`.
+  - `services/gateway/app/ws/session_socket.py`: `target_reached = snap.segment_count >= (snap.planned_count or SESSION_SEGMENT_TARGET)`. A 2-segment session cleanly hits `complete` at 2/2; open-ended (ladder-only) sessions still cap at `SESSION_SEGMENT_TARGET`.
+
+### Feedback delivery: review-style page in `(session)`
+- **Root cause**: the `feedback` state had no rendered content (just a `✓` glyph), and `SessionRunner.tsx:509` mounted the segment-audio `<audio autoPlay>` whenever state was `listening || feedback || next_segment` — so entering feedback **replayed the segment audio**. The original design intended TTS audio feedback but only the rendering hook was wired; nothing ever set `audioUrl` to a feedback URL, and under `USE_MOCKS=1` `feedback_audio_path` is a placeholder (`mocks/feedback_audio_placeholder.mp3`) anyway.
+- **Design decision (user-approved)**: drop audio feedback for now; show a full review-style **text page** after each attempt. The "no text during sessions" rule is amended accordingly.
+- **Fix**:
+  - New `frontend/components/AttemptFeedback.tsx` — pure presentational component rendering semantic block (transcript / reference / score / errors with severity colors / feedback_text) + prosody metrics + optional attempt audio. Light-themed; render on a light background.
+  - `frontend/app/review/[sessionId]/page.tsx` — refactored to use the shared component (~60 inline lines deleted; the `severityColor` helper moved into the component).
+  - `frontend/app/(session)/SessionRunner.tsx` — captures `semantic.result` and `prosody.result` payloads into state on receipt, clears them on every `segment.play` (next attempt), renders `<AttemptFeedback>` inside a white card when `state === "feedback"`. Segment-`<audio>` gate narrowed from `listening || feedback || next_segment` to just `listening` — no more replay.
+  - `CLAUDE.md` Key Architectural Rule: **"No text during sessions"** → **"No text while interpreting"**. Text remains forbidden during `listening`/`recording`; the `feedback` state now shows the full review breakdown. Compact Instructions reference updated to match.
+
+### Context-aware ASR: domain-vocabulary priming
+- **Why**: Whisper transcribed blind — both Groq and faster-whisper paths support a `prompt`/`initial_prompt` parameter for vocabulary biasing, neither used it. Technical jargon often got mis-spelled.
+- **Scope decision (user-approved)**: prime with **domain vocabulary only** — *not* the reference answer or paraphrases. Biasing toward the correct answer would let a garbled interpretation transcribe as correct and mask the learner's real omissions/lexical-gap errors, defeating the evaluator. Domain seeds (jargon, proper nouns) help spell technical terms without revealing the answer.
+- **Fix** (gateway builds the hint; analysis stays a pure consumer):
+  - `services/gateway/app/vocab/seeds.py`: new pure helper `domain_asr_prompt(domain, target_lang) -> str` — comma-joins the domain's `TOPIC_SEEDS` terms in the spoken language (Korean `definition`s when `target_lang=="ko"`, English `term`s otherwise). Unknown domain → `""`.
+  - `services/gateway/app/queue.py`: `enqueue_analysis` computes the hint (`empty → None`) and sets it on `AnalysisRequest.asr_prompt`.
+  - New field on both `AnalysisRequest` Pydantic models (gateway `_Strict` + analysis `BaseModel`): `asr_prompt: str | None = None` — optional + defaulted, backward-compatible with in-flight arq payloads.
+  - `contracts/contracts.json`: `AnalysisRequest` documented with the new optional field.
+  - `services/analysis/app/asr/transcribe.py`: `transcribe(audio_path, lang, prompt=None)`; local path passes `initial_prompt=prompt` to `model.transcribe(...)`.
+  - `services/analysis/app/asr/transcribe_groq.py`: Groq request `data` dict gains `"prompt"` only when truthy.
+  - `services/analysis/app/worker.py`: both `transcribe` calls (cache-hit + parallel-gather branches, via `asyncio.to_thread`) forward `prompt=req.asr_prompt`.
+  - `services/gateway/tests/test_asr_hints.py`: 7 tests covering known domains × `ko`/`en` and unknown-domain fallback. **All passing locally.**
+- **Effect**: zero behavior change under `USE_MOCKS=1` (the mock pipeline never calls `transcribe`). With real Groq ASR (`WHISPER_PROVIDER=groq`), the API request now carries a ~30-term domain hint string under Whisper's ~224-token prompt window.
+
+### Operational reset (no code change)
+- Running stack briefly diverged from `docker-compose.yml`: an orphaned `arq-generation` container survived a service rename and held 788 MiB RAM + 2.26 GB of HF-model writable layer. A stale `interpretit-*` project (pre-rename) had 3 exited containers + 2 dead volumes. All removed. `docker compose -p phase5` is now the canonical project; running set matches compose.
+
+## File delta since 2026-05-21 (uncommitted on worktree-phase5)
+
+| File | Change |
+|---|---|
+| `services/gateway/app/api/internal.py` | Redis publish on `analysis_events`; state transition `analyzing → feedback` in `_close_if_ready` |
+| `services/gateway/app/ws/session_socket.py` | `_analysis_listener` (Redis subscriber); `target_reached` from `planned_count`; segment audio gate narrowed |
+| `services/gateway/app/session_manager.py` | `SessionSnapshot.planned_count` |
+| `services/gateway/app/engine/segment_picker.py` | Planned-session strictly bounded; no ladder fallthrough |
+| `services/gateway/app/vocab/seeds.py` | `domain_asr_prompt` helper |
+| `services/gateway/app/queue.py` | `enqueue_analysis` sets `asr_prompt` from the helper |
+| `services/gateway/app/contracts/models.py` | `AnalysisRequest.asr_prompt` (optional) |
+| `services/gateway/tests/test_asr_hints.py` | **new** — 7 tests, all green |
+| `services/analysis/app/contracts/models.py` | `AnalysisRequest.asr_prompt` (optional) |
+| `services/analysis/app/asr/transcribe.py` | `prompt` param threaded; `initial_prompt=` to faster-whisper |
+| `services/analysis/app/asr/transcribe_groq.py` | `data["prompt"] = prompt` when set |
+| `services/analysis/app/worker.py` | Both `transcribe` calls forward `prompt=req.asr_prompt` |
+| `frontend/components/AttemptFeedback.tsx` | **new** — shared review-style attempt card |
+| `frontend/app/review/[sessionId]/page.tsx` | Uses `AttemptFeedback`; inline render + `severityColor` removed |
+| `frontend/app/(session)/SessionRunner.tsx` | Result-payload state; feedback page in `feedback` state; audio gate narrowed |
+| `CLAUDE.md` | "No text during sessions" → "No text while interpreting" (Key Rule + Compact Instructions) |
+| `contracts/contracts.json` | `AnalysisRequest.asr_prompt` documented |
+
+## Known issues / followups (in addition to Phase 7's)
+
+- **All Phase 8 changes are uncommitted on `worktree-phase5`.** Decide commit granularity before the next merge to `main` — natural slices: (a) spinner fix, (b) segment-count fix, (c) feedback page + CLAUDE.md amendment, (d) ASR vocab priming. The repo's "one commit per logical change" rule prefers four commits over one squash.
+- **Feedback-audio TTS is gone, not deferred.** The `feedback_audio_path` on `ProsodyResult`/`SemanticResult` is still emitted (placeholder under mocks) but the frontend no longer attempts to play it. If audio feedback returns later, it needs (i) gateway-signed URL on the WS envelope, (ii) real TTS upload to MinIO, (iii) a player wired into the feedback state.
+- **Personal vocab deck is not in the ASR prompt.** Only the static domain seeds are. Adding the learner's `learner_vocab_deck` terms (terms they've missed) would be a small extension — one extra DB query in the gateway's `enqueue_analysis`, joined with the seed terms before passing to `domain_asr_prompt`.
+- **No real-mode verification of the ASR prompt yet.** Needs `USE_MOCKS=0` + `GROQ_API_KEY`; speak a domain term that Whisper might mis-hear, confirm correct transcription and that the Groq request log carries `prompt=...`.
+- **Frontend rebuild required for any UI change** (no bind mount). Backend changes (`services/gateway/app`, `services/analysis/app`) are bind-mounted — `docker compose restart <service>` suffices.
+
+## Verification commands (Phase 8)
+
+```bash
+# Backend syntax + unit test (host Python is fine — gateway has no async deps in the helper)
+python3 -m py_compile $(git -C .claude/worktrees/phase5 diff --name-only --diff-filter=AM -- '*.py')
+python3 -m pytest services/gateway/tests/test_asr_hints.py -q   # 7 passed
+
+# Confirm services healthy with new code
+curl -s -o /dev/null -w "gateway:%{http_code} " http://localhost:8000/health
+curl -s -o /dev/null -w "analysis:%{http_code}\n" http://localhost:8001/health
+
+# Spot-check the Redis analysis_events flow during a session
+docker compose exec redis redis-cli PSUBSCRIBE 'analysis_events'
+
+# Confirm planned-session bound: complete a 2-segment session and see state hit `complete` at 2/2
+docker compose exec postgres psql -U interpretit -d interpretit -c \
+  "SELECT state, segment_count, array_length(planned_segment_ids, 1) AS planned FROM sessions ORDER BY started_at DESC LIMIT 3;"
+```
+
+## Human-only actions remaining
+
+- **Commit + merge the four Phase 8 changes** to `main` once you've smoke-tested the session flow end-to-end in Chrome.
+- **Real-mode ASR sanity check** with `USE_MOCKS=0` + `GROQ_API_KEY` if/when you want to confirm the vocab biasing actually improves jargon transcription.
+- **Decide on feedback audio** — is the text-only feedback page final, or do you want the TTS audio path completed later?
+- **Decide on personal-deck-in-ASR-prompt** — feed the learner's missed terms into the Whisper hint, not just the domain seeds.
