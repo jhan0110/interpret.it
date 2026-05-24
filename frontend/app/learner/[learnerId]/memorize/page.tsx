@@ -13,8 +13,8 @@ export default async function MemorizePage({
       <div>
         <h2 className="text-2xl font-semibold">Memorization Practice</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Listen to a segment in the source language, then recall the key
-          points from memory in that same language.
+          Hear a phrase, then recall the key points from memory — all in the
+          same language. No interpretation, just listening and recall.
         </p>
       </div>
       <CreateSessionForm

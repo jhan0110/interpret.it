@@ -13,6 +13,7 @@ const GATEWAY_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
 
 type Direction = "en-ko" | "ko-en";
+type MonoLang = "en" | "ko";
 
 const DIRECTIONS: Record<
   Direction,
@@ -20,6 +21,11 @@ const DIRECTIONS: Record<
 > = {
   "en-ko": { source_lang: "en", target_lang: "ko", label: "English → Korean" },
   "ko-en": { source_lang: "ko", target_lang: "en", label: "Korean → English" },
+};
+
+const MONO_LANGS: Record<MonoLang, string> = {
+  en: "English",
+  ko: "Korean",
 };
 
 const TOPICS = [
@@ -57,8 +63,10 @@ export function CreateSessionForm({
   submittingLabel?: string;
 } = {}) {
   const router = useRouter();
+  const isMemorization = mode === "memorization";
   const [learnerId, setLearnerId] = useState(presetLearnerId ?? "");
   const [direction, setDirection] = useState<Direction>("en-ko");
+  const [language, setLanguage] = useState<MonoLang>("en");
   const [topics, setTopics] = useState<string[]>(["logistics"]);
   const [userLevel, setUserLevel] =
     useState<GenerationParams["user_level"]>(3);
@@ -84,7 +92,9 @@ export function CreateSessionForm({
       return;
     }
     setSubmitting(true);
-    const { source_lang, target_lang } = DIRECTIONS[direction];
+    const { source_lang, target_lang } = isMemorization
+      ? { source_lang: language, target_lang: language }
+      : DIRECTIONS[direction];
     const body: PostSessionRequest = {
       learner_id: learnerId.trim(),
       domain: topics[0],
@@ -138,26 +148,52 @@ export function CreateSessionForm({
         </div>
       )}
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="direction" className="text-sm font-medium">
-          Direction
-        </label>
-        <select
-          id="direction"
-          value={direction}
-          onChange={(e) => setDirection(e.target.value as Direction)}
-          required
-          className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-        >
-          {(Object.entries(DIRECTIONS) as [Direction, (typeof DIRECTIONS)[Direction]][]).map(
-            ([key, { label }]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ),
-          )}
-        </select>
-      </div>
+      {isMemorization ? (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="language" className="text-sm font-medium">
+            Language
+          </label>
+          <select
+            id="language"
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as MonoLang)}
+            required
+            className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+          >
+            {(Object.entries(MONO_LANGS) as [MonoLang, string][]).map(
+              ([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ),
+            )}
+          </select>
+          <p className="text-xs text-zinc-500">
+            You will hear and recall in the same language.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="direction" className="text-sm font-medium">
+            Direction
+          </label>
+          <select
+            id="direction"
+            value={direction}
+            onChange={(e) => setDirection(e.target.value as Direction)}
+            required
+            className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+          >
+            {(Object.entries(DIRECTIONS) as [Direction, (typeof DIRECTIONS)[Direction]][]).map(
+              ([key, { label }]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ),
+            )}
+          </select>
+        </div>
+      )}
 
       <fieldset className="flex flex-col gap-2 rounded border border-zinc-200 p-3">
         <legend className="px-1 text-sm font-medium">Topics</legend>
