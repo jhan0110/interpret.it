@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import sessionmaker_factory
@@ -41,6 +41,8 @@ class SessionSnapshot:
     current_difficulty: int
     segment_count: int
     planned_count: int
+    mode: str
+    replays_remaining: int
 
 
 async def _session_row(session: AsyncSession, sid: UUID) -> SessionRow:
@@ -66,6 +68,18 @@ async def snapshot(session_id: UUID) -> SessionSnapshot:
                 seg_register = seg.register
                 seg_difficulty = seg.difficulty_level
 
+        replayed_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(AttemptRow)
+                .where(
+                    AttemptRow.session_id == session_id,
+                    AttemptRow.replayed.is_(True),
+                )
+            )
+        ).scalar_one()
+        replays_remaining = max(0, (row.replays_budget or 0) - int(replayed_count or 0))
+
         return SessionSnapshot(
             session_id=row.id,
             learner_id=row.learner_id,
@@ -79,6 +93,8 @@ async def snapshot(session_id: UUID) -> SessionSnapshot:
             current_difficulty=seg_difficulty,
             segment_count=row.segment_count,
             planned_count=len(row.planned_segment_ids or []),
+            mode=row.mode,
+            replays_remaining=replays_remaining,
         )
 
 
@@ -98,6 +114,7 @@ async def create_session(
     source_lang: str,
     target_lang: str,
     generation_params: dict | None = None,
+    mode: str = "interpretation",
 ) -> SessionRow:
     sessionmaker = sessionmaker_factory()
     async with sessionmaker() as db:
@@ -110,6 +127,7 @@ async def create_session(
             id=uuid4(),
             learner_id=learner_id,
             state="idle",
+            mode=mode,
             domain=domain,
             source_lang=source_lang,
             target_lang=target_lang,
@@ -131,6 +149,7 @@ async def persist_attempt(
     audio_path: str,
     recorded_at: datetime,
     duration_ms: int = 0,
+    replayed: bool = False,
 ) -> SessionSnapshot:
     sessionmaker = sessionmaker_factory()
     async with sessionmaker() as db:
@@ -143,6 +162,7 @@ async def persist_attempt(
             audio_path=audio_path,
             duration_ms=duration_ms,
             recorded_at=recorded_at,
+            replayed=replayed,
         )
         db.add(attempt)
         await db.commit()

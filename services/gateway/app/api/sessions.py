@@ -36,6 +36,7 @@ def _row_to_session(row: SessionRow) -> Session:
         {
             "id": row.id,
             "learner_id": row.learner_id,
+            "mode": row.mode,
             "state": row.state,
             "domain": row.domain,
             "target_lang": row.target_lang,
@@ -43,6 +44,7 @@ def _row_to_session(row: SessionRow) -> Session:
             "started_at": row.started_at,
             "completed_at": row.completed_at,
             "segment_count": row.segment_count,
+            "replays_budget": row.replays_budget,
             "current_segment_id": row.current_segment_id,
         }
     )
@@ -64,6 +66,7 @@ async def post_session(body: PostSessionRequest, force: bool = False) -> Session
             source_lang=body.source_lang,
             target_lang=body.target_lang,
             generation_params=gen_dict,
+            mode=body.mode,
         )
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

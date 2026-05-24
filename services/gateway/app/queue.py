@@ -35,6 +35,7 @@ async def enqueue_analysis(
     register: str,
     domain: str,
     difficulty_level: int,
+    mode: str = "interpretation",
 ) -> AnalysisRequest:
     """Push the AnalysisRequest to both arq queues. Returns the payload."""
     hint = domain_asr_prompt(domain, target_lang) or None
@@ -52,6 +53,7 @@ async def enqueue_analysis(
         difficulty_level=difficulty_level,
         enqueued_at=datetime.now(UTC),
         asr_prompt=hint,
+        mode=mode,  # type: ignore[arg-type]
     )
     payload = req.model_dump(mode="json")
 

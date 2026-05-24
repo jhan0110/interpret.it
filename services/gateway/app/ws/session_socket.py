@@ -33,12 +33,18 @@ from app.contracts.models import (
     WSGenerationCompletePayload,
     WSGenerationProgressPayload,
     WSMessage,
+    WSReplayDeniedPayload,
+    WSReplayGrantedPayload,
+    WSReplayRequest,
     WSSegmentPlayPayload,
     WSStateChangePayload,
 )
+from sqlalchemy import select
+
 from app.db import sessionmaker_factory
 from app.engine.segment_picker import pick_segment_for_session
 from app.engine.state_machine import InvalidTransition, next_state
+from app.models.tables import SessionRow
 from app.queue import enqueue_analysis
 from app.session_manager import (
     SessionNotFound,
@@ -266,6 +272,96 @@ async def _pick_and_emit_segment(
     )
 
 
+async def _emit_replay_denied(
+    ws: WebSocket,
+    session_id: UUID,
+    attempt_id: UUID,
+    reason: str,
+    replays_remaining: int,
+) -> None:
+    payload = WSReplayDeniedPayload(
+        session_id=session_id,
+        attempt_id=attempt_id,
+        reason=reason,  # type: ignore[arg-type]
+        replays_remaining=max(0, replays_remaining),
+    )
+    await _send_envelope(ws, "replay.denied", payload.model_dump(mode="json"))
+
+
+async def _handle_replay_request(
+    ws: WebSocket, session_id: UUID, attempt_id: UUID
+) -> None:
+    try:
+        snap = await snapshot(session_id)
+    except SessionNotFound:
+        await _send_error(
+            ws, "invalid_state", "session not found", session_id=session_id
+        )
+        return
+
+    if snap.mode != "memorization":
+        await _emit_replay_denied(
+            ws, session_id, attempt_id, "wrong_mode", snap.replays_remaining
+        )
+        return
+    if snap.state not in ("listening", "recording"):
+        await _emit_replay_denied(
+            ws, session_id, attempt_id, "invalid_state", snap.replays_remaining
+        )
+        return
+    if snap.current_segment_id is None:
+        await _emit_replay_denied(
+            ws, session_id, attempt_id, "invalid_state", snap.replays_remaining
+        )
+        return
+
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        row = (
+            await db.execute(select(SessionRow).where(SessionRow.id == session_id))
+        ).scalar_one_or_none()
+    if row is None:
+        await _send_error(
+            ws, "invalid_state", "session not found", session_id=session_id
+        )
+        return
+    budget = int(row.replays_budget or 0)
+
+    segment_str = str(snap.current_segment_id)
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    redis = aioredis.from_url(redis_url, decode_responses=True)
+    key = f"memorize:replays:{session_id}"
+    try:
+        is_member = await redis.sismember(key, segment_str)
+        scard = await redis.scard(key)
+        if is_member:
+            remaining = max(0, budget - int(scard))
+            await _emit_replay_denied(
+                ws, session_id, attempt_id, "already_replayed", remaining
+            )
+            return
+        if int(scard) >= budget:
+            await _emit_replay_denied(
+                ws, session_id, attempt_id, "budget_exhausted", 0
+            )
+            return
+        first_add = int(scard) == 0
+        await redis.sadd(key, segment_str)
+        if first_add:
+            await redis.expire(key, 21600)
+        new_scard = await redis.scard(key)
+        remaining = max(0, budget - int(new_scard))
+    finally:
+        await redis.close()
+
+    payload = WSReplayGrantedPayload(
+        session_id=session_id,
+        attempt_id=attempt_id,
+        replays_remaining=remaining,
+    )
+    await _send_envelope(ws, "replay.granted", payload.model_dump(mode="json"))
+
+
 @router.websocket("/ws/sessions/{session_id}")
 async def session_ws(ws: WebSocket, session_id: UUID) -> None:
     await ws.accept()
@@ -329,6 +425,20 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                     )
                     continue
 
+                replayed_flag = False
+                try:
+                    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+                    redis = aioredis.from_url(redis_url, decode_responses=True)
+                    try:
+                        is_member = await redis.sismember(
+                            f"memorize:replays:{session_id}", str(hdr.segment_id)
+                        )
+                        replayed_flag = bool(is_member)
+                    finally:
+                        await redis.close()
+                except Exception:
+                    log.exception("redis sismember failed for replay check")
+
                 try:
                     snap = await persist_attempt(
                         session_id=session_id,
@@ -337,6 +447,7 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                         audio_path=audio_key,
                         recorded_at=hdr.recorded_at,
                         duration_ms=hdr.duration_ms,
+                        replayed=replayed_flag,
                     )
                 except SessionNotFound:
                     await _send_error(
@@ -370,6 +481,7 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                     register=snap.current_register,
                     domain=snap.domain,
                     difficulty_level=snap.current_difficulty,
+                    mode=snap.mode,
                 )
                 continue
 
@@ -390,6 +502,12 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
 
             if isinstance(envelope, WSAudioSubmitHeader):
                 pending_audio_header = envelope.payload
+                continue
+
+            if isinstance(envelope, WSReplayRequest):
+                await _handle_replay_request(
+                    ws, session_id, envelope.payload.attempt_id
+                )
                 continue
 
             # All other control frames drive the state machine; pick the
