@@ -4,7 +4,7 @@ Each prompt template lives in `services/analysis/app/llm/prompts/<name>.md`
 and looks like::
 
     ---
-    model: claude-sonnet-4-6
+    model: anthropic/claude-sonnet-4-6
     temperature: 0.8
     max_tokens: 4096
     system: |
@@ -132,7 +132,7 @@ def render_template(name: str, variables: dict) -> PromptCall:
 
     return PromptCall(
         name=name,
-        model=str(meta.get("model", os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"))),
+        model=str(meta.get("model", os.environ.get("CLAUDE_MODEL", "anthropic/claude-sonnet-4-6"))),
         temperature=float(meta.get("temperature", 0.7)),
         max_tokens=int(meta.get("max_tokens", 1024)),
         system=str(meta["system"]),

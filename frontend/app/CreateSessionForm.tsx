@@ -10,6 +10,7 @@ import type {
 } from "@/lib/contracts";
 import { LanguageSwitch } from "@/components/LanguageSwitch";
 import { DifficultySlider } from "@/components/DifficultySlider";
+import { DirectionSwitch } from "@/components/DirectionSwitch";
 
 const GATEWAY_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
@@ -145,7 +146,7 @@ export function CreateSessionForm({
             placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
             pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
             required
-            className="rounded border border-zinc-300 px-3 py-2 font-mono text-sm focus:border-zinc-500 focus:outline-none"
+            className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-[#001b69] focus:outline-none"
           />
         </div>
       )}
@@ -160,28 +161,12 @@ export function CreateSessionForm({
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          <label htmlFor="direction" className="text-sm font-medium">
-            Direction
-          </label>
-          <select
-            id="direction"
-            value={direction}
-            onChange={(e) => setDirection(e.target.value as Direction)}
-            required
-            className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-          >
-            {(Object.entries(DIRECTIONS) as [Direction, (typeof DIRECTIONS)[Direction]][]).map(
-              ([key, { label }]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ),
-            )}
-          </select>
+          <span className="text-sm font-medium">Direction</span>
+          <DirectionSwitch value={direction} onChange={setDirection} />
         </div>
       )}
 
-      <fieldset className="flex flex-col gap-2 rounded border border-zinc-200 p-3">
+      <fieldset className="flex flex-col gap-2 rounded border border-zinc-700 p-3">
         <legend className="px-1 text-sm font-medium">Topics</legend>
         <div className="grid grid-cols-2 gap-1">
           {TOPICS.map((t) => (
@@ -190,6 +175,7 @@ export function CreateSessionForm({
                 type="checkbox"
                 checked={topics.includes(t.value)}
                 onChange={() => toggleTopic(t.value)}
+                className="accent-[#001b69]"
               />
               <span>{t.label}</span>
             </label>
@@ -217,7 +203,7 @@ export function CreateSessionForm({
             setDuration(e.target.value as GenerationParams["duration"])
           }
           required
-          className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+          className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-[#001b69] focus:outline-none"
         >
           {DURATIONS.map((d) => (
             <option key={d.value} value={d.value}>
@@ -229,7 +215,7 @@ export function CreateSessionForm({
 
       <div className="flex flex-col gap-1">
         <label htmlFor="context" className="text-sm font-medium">
-          Current context <span className="text-zinc-400">(optional)</span>
+          Current context <span className="text-zinc-500">(optional)</span>
         </label>
         <textarea
           id="context"
@@ -237,12 +223,12 @@ export function CreateSessionForm({
           onChange={(e) => setCurrentContext(e.target.value)}
           placeholder="e.g. NATO supply rerouting through Poland"
           rows={2}
-          className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+          className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-[#001b69] focus:outline-none"
         />
       </div>
 
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-400">
           {error}
         </p>
       )}
@@ -250,7 +236,8 @@ export function CreateSessionForm({
       <button
         type="submit"
         disabled={submitting}
-        className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+        style={{ background: "#001b69" }}
+        className="rounded px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {submitting
           ? (submittingLabel ?? "Generating...")

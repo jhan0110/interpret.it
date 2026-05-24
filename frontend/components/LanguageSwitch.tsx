@@ -21,8 +21,8 @@ export function LanguageSwitch({ value, onChange, disabled = false }: LanguageSw
     }
   }
 
-  const activeClass = "bg-zinc-900 text-white";
-  const inactiveClass = "bg-zinc-100 text-zinc-600";
+  const activeClass = "text-white";
+  const inactiveClass = "text-zinc-400";
   const disabledClass = "opacity-40 cursor-not-allowed";
 
   return (
@@ -32,7 +32,7 @@ export function LanguageSwitch({ value, onChange, disabled = false }: LanguageSw
       aria-label="Language"
       tabIndex={disabled ? -1 : 0}
       onKeyDown={handleKeyDown}
-      className={`inline-flex h-9 w-full overflow-hidden rounded-full border border-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-1 ${disabled ? disabledClass : ""}`}
+      className={`inline-flex h-9 w-full overflow-hidden rounded-full border border-zinc-700 bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#001b69] focus-visible:ring-offset-1 ${disabled ? disabledClass : ""}`}
     >
       <button
         type="button"
@@ -42,6 +42,7 @@ export function LanguageSwitch({ value, onChange, disabled = false }: LanguageSw
         onClick={() => {
           if (!disabled && value !== "en") onChange("en");
         }}
+        style={value === "en" ? { background: "#001b69" } : undefined}
         className={`flex flex-1 items-center justify-center text-sm font-medium transition-colors ${value === "en" ? activeClass : inactiveClass} ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
       >
         EN
@@ -54,6 +55,7 @@ export function LanguageSwitch({ value, onChange, disabled = false }: LanguageSw
         onClick={() => {
           if (!disabled && value !== "ko") onChange("ko");
         }}
+        style={value === "ko" ? { background: "#001b69" } : undefined}
         className={`flex flex-1 items-center justify-center text-sm font-medium transition-colors ${value === "ko" ? activeClass : inactiveClass} ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
       >
         한국어

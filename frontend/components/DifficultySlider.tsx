@@ -32,7 +32,7 @@ export function DifficultySlider({
               <span
                 key={opt.value}
                 aria-hidden
-                className="absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-300"
+                className="absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-500"
                 style={{ left: `${tickPct}%` }}
               />
             );
@@ -42,12 +42,12 @@ export function DifficultySlider({
         <div className="relative -mt-5 h-5 w-full">
           <div
             aria-hidden
-            className="pointer-events-none absolute top-1/2 left-0 h-0.5 -translate-y-1/2 bg-zinc-900 transition-all"
-            style={{ width: `${pct}%` }}
+            className="pointer-events-none absolute top-1/2 left-0 h-0.5 -translate-y-1/2 transition-all"
+            style={{ width: `${pct}%`, background: "#001b69" }}
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute top-1/2 right-0 h-0.5 -translate-y-1/2 bg-zinc-200"
+            className="pointer-events-none absolute top-1/2 right-0 h-0.5 -translate-y-1/2 bg-zinc-700"
             style={{ width: `${100 - pct}%` }}
           />
 
@@ -77,15 +77,16 @@ export function DifficultySlider({
               width: 18px;
               height: 18px;
               border-radius: 50%;
-              background: #18181b;
+              background: #001b69;
               margin-top: -8px;
               transition: transform 0.1s;
+              box-shadow: 0 0 0 1px #ededed;
             }
             .difficulty-range:not(:disabled)::-webkit-slider-thumb:hover {
               transform: scale(1.15);
             }
             .difficulty-range:focus-visible::-webkit-slider-thumb {
-              outline: 2px solid #18181b;
+              outline: 2px solid #001b69;
               outline-offset: 2px;
             }
             .difficulty-range::-moz-range-thumb {
@@ -93,7 +94,8 @@ export function DifficultySlider({
               width: 18px;
               height: 18px;
               border-radius: 50%;
-              background: #18181b;
+              background: #001b69;
+              box-shadow: 0 0 0 1px #ededed;
             }
           `}</style>
 
@@ -115,7 +117,7 @@ export function DifficultySlider({
         </div>
       </div>
 
-      <p className="text-center text-sm text-zinc-700">
+      <p className="text-center text-sm text-zinc-300">
         {currentOption?.label ?? value}
       </p>
     </div>
