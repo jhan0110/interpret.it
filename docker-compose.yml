@@ -77,9 +77,15 @@ services:
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: interpretit
       GATEWAY_RPC_URL: http://gateway:8000
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-anthropic/claude-sonnet-4-6}
+      TTS_PROVIDER: ${TTS_PROVIDER:-openai}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-openai/gpt-audio-mini}
+      OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-alloy}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_FEEDBACK_VOICE: ${ELEVENLABS_FEEDBACK_VOICE:-EXAVITQu4vr4xnSDxMaL}
       USE_MOCKS: ${USE_MOCKS:-1}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       WHISPER_PROVIDER: ${WHISPER_PROVIDER:-local}
@@ -104,9 +110,15 @@ services:
       MINIO_BUCKET: interpretit
       GATEWAY_RPC_URL: http://gateway:8000
       ARQ_QUEUE_NAME: semantic
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-anthropic/claude-sonnet-4-6}
+      TTS_PROVIDER: ${TTS_PROVIDER:-openai}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-openai/gpt-audio-mini}
+      OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-alloy}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_FEEDBACK_VOICE: ${ELEVENLABS_FEEDBACK_VOICE:-EXAVITQu4vr4xnSDxMaL}
       USE_MOCKS: ${USE_MOCKS:-1}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       WHISPER_PROVIDER: ${WHISPER_PROVIDER:-local}
@@ -129,9 +141,15 @@ services:
       MINIO_BUCKET: interpretit
       GATEWAY_RPC_URL: http://gateway:8000
       ARQ_QUEUE_NAME: generation
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-anthropic/claude-sonnet-4-6}
+      TTS_PROVIDER: ${TTS_PROVIDER:-openai}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-openai/gpt-audio-mini}
+      OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-alloy}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_FEEDBACK_VOICE: ${ELEVENLABS_FEEDBACK_VOICE:-EXAVITQu4vr4xnSDxMaL}
       USE_MOCKS: ${USE_MOCKS:-1}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       WHISPER_PROVIDER: ${WHISPER_PROVIDER:-local}

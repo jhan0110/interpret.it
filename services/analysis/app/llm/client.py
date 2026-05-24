@@ -1,26 +1,51 @@
-"""Central Anthropic SDK wrapper.
+"""Central LLM wrapper.
 
-All modules that need structured LLM output should call ``structured_generate``
-rather than instantiating ``anthropic.Anthropic`` directly.  This keeps SDK
-version bumps and provider swaps in one place.
+Uses the OpenAI SDK pointed at OpenRouter so Claude (and any other
+chat-completion model on OpenRouter) is reachable through one key.
+
+Call sites still pass Anthropic-style tool schemas
+(``{"name", "description", "input_schema"}``) — this wrapper translates
+to OpenAI function-calling format internally so no downstream module
+needs to know which provider it talks to.
 """
 
 from __future__ import annotations
 
+import json
 import os
 
-import anthropic
+from openai import OpenAI
 
-_client: anthropic.Anthropic | None = None
+_client: OpenAI | None = None
 
-_DEFAULT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
+_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
 
-def _get_client() -> anthropic.Anthropic:
+def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "OPENROUTER_API_KEY is required (or OPENAI_API_KEY as fallback)"
+            )
+        _client = OpenAI(
+            api_key=api_key,
+            base_url=os.environ.get("OPENROUTER_BASE_URL", _DEFAULT_BASE_URL),
+        )
     return _client
+
+
+def _anthropic_tool_to_openai(tool: dict) -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": tool["name"],
+            "description": tool.get("description", ""),
+            "parameters": tool["input_schema"],
+        },
+    }
 
 
 def structured_generate(
@@ -31,51 +56,62 @@ def structured_generate(
     model: str | None = None,
     max_tokens: int = 1024,
 ) -> dict:
-    """Call Claude with a single tool and return the tool_use input dict.
+    """Call the LLM with a single tool and return the tool input dict.
 
     Parameters
     ----------
-    system:
-        The system prompt string.
-    user:
-        The user-turn message string.
-    tool:
-        A tool schema dict with keys ``name``, ``description``, and
-        ``input_schema``.  The model is forced to call this tool via
-        ``tool_choice={"type": "any"}``.
-    model:
-        Override the Claude model name.  Defaults to the ``CLAUDE_MODEL``
-        environment variable, falling back to ``"claude-sonnet-4-6"``.
-    max_tokens:
-        Maximum tokens in the response (default 1024).
+    system : str
+        System prompt.
+    user : str
+        User-turn message.
+    tool : dict
+        Anthropic-style tool schema with ``name``, ``description``, and
+        ``input_schema``. Translated to OpenAI function format on the
+        wire. The model is forced to call exactly this tool.
+    model : str | None
+        Override the model. Defaults to the ``CLAUDE_MODEL`` env var
+        (must be an OpenRouter-qualified path like
+        ``anthropic/claude-sonnet-4-6``), falling back to the constant
+        above.
+    max_tokens : int
+        Maximum tokens in the response.
 
     Returns
     -------
     dict
-        The ``input`` dict from the first ``tool_use`` block in the response.
+        The parsed ``arguments`` dict from the tool call.
 
     Raises
     ------
     RuntimeError
-        If the response contains no ``tool_use`` block.
+        If the response contains no tool call.
     """
     resolved_model = model or os.environ.get("CLAUDE_MODEL", _DEFAULT_MODEL)
     client = _get_client()
 
-    response = client.messages.create(
+    fn_tool = _anthropic_tool_to_openai(tool)
+    fn_name = fn_tool["function"]["name"]
+
+    response = client.chat.completions.create(
         model=resolved_model,
         max_tokens=max_tokens,
-        system=system,
-        tools=[tool],
-        tool_choice={"type": "any"},
-        messages=[{"role": "user", "content": user}],
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        tools=[fn_tool],
+        tool_choice={"type": "function", "function": {"name": fn_name}},
     )
 
-    for block in response.content:
-        if block.type == "tool_use":
-            return block.input  # type: ignore[return-value]
+    message = response.choices[0].message
+    tool_calls = message.tool_calls or []
+    if not tool_calls:
+        raise RuntimeError(
+            f"Model did not call tool '{fn_name}'. "
+            f"Finish reason: {response.choices[0].finish_reason}"
+        )
 
-    raise RuntimeError(
-        f"Claude did not call tool '{tool.get('name', '?')}'. "
-        f"Stop reason: {response.stop_reason}"
-    )
+    raw_args = tool_calls[0].function.arguments
+    if isinstance(raw_args, dict):
+        return raw_args
+    return json.loads(raw_args)

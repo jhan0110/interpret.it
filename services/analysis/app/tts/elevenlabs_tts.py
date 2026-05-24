@@ -1,14 +1,18 @@
-"""ElevenLabs TTS integration with content-hash caching in MinIO.
+"""TTS integration with content-hash caching in MinIO.
 
 Two callers:
 - `generate_feedback_audio` — short TTS for mid-session feedback playback.
 - `generate_segment_audio` — full-sentence training segments, voice
   selected by source language.
 
+Provider is chosen by the ``TTS_PROVIDER`` env var: ``openai`` (default,
+gpt-4o-mini-tts via OpenRouter) or ``elevenlabs`` (legacy fallback).
 Both cache by content hash so identical inputs reuse the same MinIO
-object. In `USE_MOCKS=1` mode (the dev default), real ElevenLabs is
-skipped; instead a silent mp3 of the target duration is generated via
-pydub so the browser sees playable, correctly-sized audio.
+object. In `USE_MOCKS=1` mode (the dev default), the real TTS request
+is skipped; instead a silent mp3 of the target duration is generated
+via pydub so the browser sees playable, correctly-sized audio.
+
+The module filename is historical — kept to avoid churn in importers.
 """
 
 from __future__ import annotations
@@ -31,6 +35,10 @@ _DEFAULT_EN_VOICE = "EXAVITQu4vr4xnSDxMaL"  # Sarah — generic neutral en
 _DEFAULT_KO_VOICE = "AZnzlk1XvdvUeBnXmlld"  # placeholder until a real ko voice is chosen
 _FEEDBACK_DEFAULT_VOICE = _DEFAULT_EN_VOICE
 
+# OpenAI gpt-4o-mini-tts voices are multilingual; one voice per learner
+# is fine — language is inferred from input text.
+_OPENAI_DEFAULT_VOICE = "alloy"
+
 
 def _get_s3() -> boto3.client:
     global _s3_client
@@ -48,8 +56,19 @@ def _use_mocks() -> bool:
     return os.environ.get("USE_MOCKS", "1") == "1"
 
 
+def _provider() -> str:
+    return os.environ.get("TTS_PROVIDER", "openai").lower()
+
+
 def voice_id_for_lang(lang: str) -> str:
-    """Resolve the ElevenLabs voice ID for the given source language."""
+    """Resolve the voice identifier for the given source language.
+
+    For OpenAI TTS, voices are multilingual and we use a single configured
+    voice (``OPENAI_TTS_VOICE``) regardless of language. For ElevenLabs,
+    a per-language voice ID is selected.
+    """
+    if _provider() == "openai":
+        return os.environ.get("OPENAI_TTS_VOICE", _OPENAI_DEFAULT_VOICE)
     env_key = f"ELEVENLABS_VOICE_{lang.upper()}"
     override = os.environ.get(env_key)
     if override:
@@ -80,12 +99,12 @@ def _silent_mp3(seconds: int) -> bytes:
     return buf.getvalue()
 
 
-def _real_tts(text: str, voice_id: str) -> bytes:
+def _real_tts_elevenlabs(text: str, voice_id: str) -> bytes:
     from elevenlabs import ElevenLabs  # type: ignore[import-untyped]
 
     api_key = os.environ["ELEVENLABS_API_KEY"]
     client = ElevenLabs(api_key=api_key)
-    log.info("[tts.request.begin] voice=%s text_len=%d", voice_id, len(text))
+    log.info("[tts.elevenlabs.begin] voice=%s text_len=%d", voice_id, len(text))
     t0 = time.monotonic()
     audio = b"".join(
         client.text_to_speech.convert(
@@ -96,8 +115,81 @@ def _real_tts(text: str, voice_id: str) -> bytes:
         )
     )
     req_ms = int((time.monotonic() - t0) * 1000)
-    log.info("[tts.request.done] voice=%s http_status=200 took=%dms bytes=%d", voice_id, req_ms, len(audio))
+    log.info("[tts.elevenlabs.done] voice=%s http_status=200 took=%dms bytes=%d", voice_id, req_ms, len(audio))
     return audio
+
+
+def _real_tts_openai(text: str, voice: str) -> bytes:
+    """Synthesize via OpenAI audio-out chat completions through OpenRouter.
+
+    OpenRouter does not proxy the standalone ``/v1/audio/speech`` endpoint,
+    but exposes ``openai/gpt-audio*`` chat models with ``audio`` output
+    modality. The audio data is returned base64-encoded inside the
+    assistant message; we decode and return the raw bytes.
+    """
+    import base64
+
+    from openai import OpenAI
+
+    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY (or OPENAI_API_KEY) required for openai TTS")
+    base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    model = os.environ.get("OPENAI_TTS_MODEL", "openai/gpt-audio-mini")
+    log.info("[tts.openai.begin] model=%s voice=%s text_len=%d", model, voice, len(text))
+    t0 = time.monotonic()
+    stream = client.chat.completions.create(
+        model=model,
+        modalities=["text", "audio"],
+        audio={"voice": voice, "format": "pcm16"},
+        stream=True,
+        messages=[
+            {
+                "role": "system",
+                "content": "Read the user's text aloud exactly as written, with no preamble.",
+            },
+            {"role": "user", "content": text},
+        ],
+    )
+    audio_b64_parts: list[str] = []
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta
+        audio_delta = getattr(delta, "audio", None)
+        if audio_delta is None:
+            continue
+        data = audio_delta.get("data") if isinstance(audio_delta, dict) else getattr(audio_delta, "data", None)
+        if data:
+            audio_b64_parts.append(data)
+    if not audio_b64_parts:
+        raise RuntimeError("audio output missing from chat completion stream")
+    pcm_bytes = base64.b64decode("".join(audio_b64_parts))
+
+    from pydub import AudioSegment  # type: ignore[import-untyped]
+
+    segment = AudioSegment(
+        data=pcm_bytes,
+        sample_width=2,
+        frame_rate=24000,
+        channels=1,
+    )
+    mp3_buf = io.BytesIO()
+    segment.export(mp3_buf, format="mp3")
+    audio = mp3_buf.getvalue()
+    req_ms = int((time.monotonic() - t0) * 1000)
+    log.info(
+        "[tts.openai.done] voice=%s took=%dms pcm_bytes=%d mp3_bytes=%d",
+        voice, req_ms, len(pcm_bytes), len(audio),
+    )
+    return audio
+
+
+def _real_tts(text: str, voice: str) -> bytes:
+    if _provider() == "openai":
+        return _real_tts_openai(text, voice)
+    return _real_tts_elevenlabs(text, voice)
 
 
 def _generate_and_store(
@@ -125,11 +217,17 @@ def _generate_and_store(
     return key
 
 
+def _feedback_default_voice() -> str:
+    if _provider() == "openai":
+        return os.environ.get("OPENAI_TTS_VOICE", _OPENAI_DEFAULT_VOICE)
+    return os.environ.get("ELEVENLABS_FEEDBACK_VOICE", _FEEDBACK_DEFAULT_VOICE)
+
+
 def generate_feedback_audio(text: str, voice_id: str | None = None) -> str:
     """Generate TTS audio for in-session feedback playback. Returns MinIO key."""
     return _generate_and_store(
         text,
-        voice_id or _FEEDBACK_DEFAULT_VOICE,
+        voice_id or _feedback_default_voice(),
         prefix="tts",
         mock_duration_s=3,
     )
