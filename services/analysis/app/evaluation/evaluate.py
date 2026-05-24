@@ -223,6 +223,7 @@ Learner's interpretation ({target_lang}):
     )
     result = SemanticResult(
         attempt_id=attempt_id,
+        source_text=source_text,
         transcript=user_transcript,
         reference_translation=reference.canonical,
         acceptable_paraphrases=reference.paraphrases,

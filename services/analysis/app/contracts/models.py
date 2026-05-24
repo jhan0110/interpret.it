@@ -97,6 +97,7 @@ class KeyPoint(BaseModel):
 class SemanticResult(BaseModel):
     attempt_id: UUID
     mode: SessionMode = "interpretation"
+    source_text: str = ""
     transcript: str
     reference_translation: str
     acceptable_paraphrases: list[str]

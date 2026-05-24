@@ -121,6 +121,7 @@ class KeyPoint(_Strict):
 class SemanticResult(_Strict):
     attempt_id: UUID
     mode: SessionMode = "interpretation"
+    source_text: str = ""
     transcript: str
     reference_translation: str
     acceptable_paraphrases: list[str]

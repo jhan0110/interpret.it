@@ -96,6 +96,7 @@
   "SemanticResult": {
     "attempt_id":             "uuid",
     "mode":                   "interpretation | memorization",
+    "source_text":            "string",                  // the original-language phrase the learner heard
     "transcript":             "string",
     "reference_translation":  "string",
     "acceptable_paraphrases": ["string"],

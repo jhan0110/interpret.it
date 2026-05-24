@@ -70,6 +70,7 @@ export interface FollowupExercise {
 export interface SemanticResult {
   attempt_id: string;
   mode: SessionMode;
+  source_text: string;
   transcript: string;
   reference_translation: string;
   acceptable_paraphrases: string[];

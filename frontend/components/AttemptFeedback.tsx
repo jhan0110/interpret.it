@@ -39,6 +39,14 @@ export function AttemptFeedback({ semanticResult, prosodyResult, audioUrl }: Pro
 
       {semanticResult ? (
         <div className="space-y-3">
+          {semanticResult.source_text && !isMemorization && (
+            <div>
+              <h3 className="text-sm font-semibold">Source</h3>
+              <p className="text-sm text-zinc-800">
+                {semanticResult.source_text}
+              </p>
+            </div>
+          )}
           <div>
             <h3 className="text-sm font-semibold">
               {isMemorization ? "Your recall" : "Your interpretation"}
@@ -49,7 +57,7 @@ export function AttemptFeedback({ semanticResult, prosodyResult, audioUrl }: Pro
           </div>
           <div>
             <h3 className="text-sm font-semibold">
-              {isMemorization ? "Source" : "Reference"}
+              {isMemorization ? "Source" : "Reference translation"}
             </h3>
             <p className="text-sm text-zinc-800">
               {semanticResult.reference_translation}

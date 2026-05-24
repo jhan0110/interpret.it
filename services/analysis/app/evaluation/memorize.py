@@ -353,6 +353,7 @@ Learner's recall ({source_lang}):
     result = SemanticResult(
         attempt_id=attempt_id,
         mode="memorization",
+        source_text=source_text,
         transcript=user_transcript,
         reference_translation=source_text,
         acceptable_paraphrases=[],
