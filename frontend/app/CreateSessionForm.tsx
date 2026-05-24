@@ -166,20 +166,29 @@ export function CreateSessionForm({
         </div>
       )}
 
-      <fieldset className="flex flex-col gap-2 rounded border border-zinc-700 p-3">
-        <legend className="px-1 text-sm font-medium">Topics</legend>
-        <div className="grid grid-cols-2 gap-1">
-          {TOPICS.map((t) => (
-            <label key={t.value} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={topics.includes(t.value)}
-                onChange={() => toggleTopic(t.value)}
-                className="accent-[#001b69]"
-              />
-              <span>{t.label}</span>
-            </label>
-          ))}
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-medium">Topics</legend>
+        <div className="grid grid-cols-3 gap-2" role="group" aria-label="Topics">
+          {TOPICS.map((t) => {
+            const selected = topics.includes(t.value);
+            return (
+              <button
+                key={t.value}
+                type="button"
+                role="checkbox"
+                aria-checked={selected}
+                onClick={() => toggleTopic(t.value)}
+                style={selected ? { background: "#001b69" } : undefined}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  selected
+                    ? "border-transparent text-white"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
         </div>
       </fieldset>
 
