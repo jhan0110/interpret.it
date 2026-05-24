@@ -8,6 +8,8 @@ import type {
   PostSessionResponse,
   SessionMode,
 } from "@/lib/contracts";
+import { LanguageSwitch } from "@/components/LanguageSwitch";
+import { DifficultySlider } from "@/components/DifficultySlider";
 
 const GATEWAY_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
@@ -150,24 +152,8 @@ export function CreateSessionForm({
 
       {isMemorization ? (
         <div className="flex flex-col gap-1">
-          <label htmlFor="language" className="text-sm font-medium">
-            Language
-          </label>
-          <select
-            id="language"
-            value={language}
-            onChange={(e) => setLanguage(e.target.value as MonoLang)}
-            required
-            className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-          >
-            {(Object.entries(MONO_LANGS) as [MonoLang, string][]).map(
-              ([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ),
-            )}
-          </select>
+          <span className="text-sm font-medium">Language</span>
+          <LanguageSwitch value={language} onChange={setLanguage} />
           <p className="text-xs text-zinc-500">
             You will hear and recall in the same language.
           </p>
@@ -211,27 +197,13 @@ export function CreateSessionForm({
         </div>
       </fieldset>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="user-level" className="text-sm font-medium">
-          Difficulty
-        </label>
-        <select
-          id="user-level"
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium">Difficulty</span>
+        <DifficultySlider
           value={userLevel}
-          onChange={(e) =>
-            setUserLevel(
-              Number(e.target.value) as GenerationParams["user_level"],
-            )
-          }
-          required
-          className="rounded border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-        >
-          {LEVELS.map((l) => (
-            <option key={l.value} value={l.value}>
-              {l.label}
-            </option>
-          ))}
-        </select>
+          onChange={setUserLevel}
+          options={LEVELS.map((l) => ({ value: l.value, label: l.label }))}
+        />
       </div>
 
       <div className="flex flex-col gap-1">
