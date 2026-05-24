@@ -6,6 +6,7 @@ import type {
   GenerationParams,
   PostSessionRequest,
   PostSessionResponse,
+  SessionMode,
 } from "@/lib/contracts";
 
 const GATEWAY_URL =
@@ -46,8 +47,14 @@ const DURATIONS = [
 
 export function CreateSessionForm({
   learnerId: presetLearnerId,
+  mode = "interpretation",
+  submitLabel,
+  submittingLabel,
 }: {
   learnerId?: string;
+  mode?: SessionMode;
+  submitLabel?: string;
+  submittingLabel?: string;
 } = {}) {
   const router = useRouter();
   const [learnerId, setLearnerId] = useState(presetLearnerId ?? "");
@@ -83,6 +90,7 @@ export function CreateSessionForm({
       domain: topics[0],
       source_lang,
       target_lang,
+      mode,
       generation: {
         topics,
         user_level: userLevel,
@@ -236,7 +244,9 @@ export function CreateSessionForm({
         disabled={submitting}
         className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {submitting ? "Generating..." : "Start Session"}
+        {submitting
+          ? (submittingLabel ?? "Generating...")
+          : (submitLabel ?? "Start Session")}
       </button>
     </form>
   );

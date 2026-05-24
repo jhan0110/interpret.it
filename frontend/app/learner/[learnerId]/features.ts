@@ -30,9 +30,10 @@ export const FEATURES: Feature[] = [
   {
     id: "memorization",
     title: "Memorization Practice",
-    description: "Pattern drills for high-frequency phrases.",
-    href: () => null,
-    status: "coming-soon",
+    description:
+      "Listen to a segment, then recall the key points from memory.",
+    href: (id) => `/learner/${id}/memorize`,
+    status: "available",
     statusKey: null,
   },
 ];
