@@ -24,6 +24,7 @@ from arq.connections import RedisSettings
 from app.content.session_generation import run_generation
 from app.contracts.models import AnalysisRequest, FollowupExercise, ProsodyResult, SemanticResult
 from app.evaluation.evaluate import evaluate
+from app.evaluation.memorize import evaluate_memorization
 from app.mocks.handlers import get_mock_semantic_result
 from app.prosody.word_prosody import compute_prosody_from_words
 from app.reference.generate import ReferenceBundle, generate_reference
@@ -93,11 +94,29 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
         from app.asr.transcribe import transcribe
 
         start = datetime.now(UTC)
+        is_memorization = req.mode == "memorization"
 
-        # Mitigation 2: check reference cache before launching the Claude call.
-        cached_ref = await _get_cached_reference(redis, str(req.segment_id))
+        if is_memorization:
+            log.info("[semantic.mode] attempt=%s mode=memorization", req.attempt_id)
+            log.info("[semantic.transcribe.begin] attempt=%s", req.attempt_id)
+            t_asr = time.monotonic()
+            transcript = await asyncio.to_thread(
+                transcribe, req.audio_path, req.target_lang, prompt=req.asr_prompt
+            )
+            asr_ms = int((time.monotonic() - t_asr) * 1000)
+            log.info(
+                "[semantic.transcribe.done] attempt=%s chars=%d took=%dms",
+                req.attempt_id,
+                len(transcript.text),
+                asr_ms,
+            )
+            reference = None
+            cached_ref = None
+        else:
+            # Mitigation 2: check reference cache before launching the Claude call.
+            cached_ref = await _get_cached_reference(redis, str(req.segment_id))
 
-        if cached_ref is not None:
+        if not is_memorization and cached_ref is not None:
             log.info("[semantic.reference.cache_hit] attempt=%s segment=%s", req.attempt_id, req.segment_id)
             # Only need to transcribe; skip generate_reference entirely.
             log.info("[semantic.transcribe.begin] attempt=%s", req.attempt_id)
@@ -106,7 +125,7 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
             asr_ms = int((time.monotonic() - t_asr) * 1000)
             log.info("[semantic.transcribe.done] attempt=%s chars=%d took=%dms", req.attempt_id, len(transcript.text), asr_ms)
             reference = cached_ref
-        else:
+        elif not is_memorization:
             log.info("[semantic.reference.cache_miss] attempt=%s", req.attempt_id)
             # Mitigation 1: run ASR and reference generation concurrently.
             log.info("[semantic.transcribe.begin] attempt=%s", req.attempt_id)
@@ -169,23 +188,40 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
             log.info("[semantic.tts.error] attempt=%s err=%s took=%dms", req.attempt_id, exc, tts_ms)
             log.exception("feedback TTS failed; using placeholder")
 
-        log.info("[semantic.evaluate.begin] attempt=%s", req.attempt_id)
+        log.info("[semantic.evaluate.begin] attempt=%s mode=%s", req.attempt_id, req.mode)
         t_eval = time.monotonic()
-        result = await asyncio.to_thread(
-            evaluate,
-            req.attempt_id,
-            req.source_text,
-            req.source_lang,
-            req.target_lang,
-            req.register,
-            req.domain,
-            req.difficulty_level,
-            transcript.text,
-            reference,
-            feedback_audio_key,
-            followup_audio_key,
-            start,
-        )
+        if is_memorization:
+            result = await asyncio.to_thread(
+                evaluate_memorization,
+                req.attempt_id,
+                req.segment_id,
+                req.source_text,
+                req.source_lang,
+                req.target_lang,
+                req.register,
+                req.domain,
+                req.difficulty_level,
+                transcript.text,
+                feedback_audio_key,
+                followup_audio_key,
+                start,
+            )
+        else:
+            result = await asyncio.to_thread(
+                evaluate,
+                req.attempt_id,
+                req.source_text,
+                req.source_lang,
+                req.target_lang,
+                req.register,
+                req.domain,
+                req.difficulty_level,
+                transcript.text,
+                reference,
+                feedback_audio_key,
+                followup_audio_key,
+                start,
+            )
         eval_ms = int((time.monotonic() - t_eval) * 1000)
         log.info(
             "[semantic.evaluate.done] attempt=%s score=%.3f errors=%d took=%dms",
@@ -201,8 +237,9 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
         push_ms = int((time.monotonic() - t_push) * 1000)
         log.info("[semantic.push.done] attempt=%s took=%dms", req.attempt_id, push_ms)
 
-        should_extract = result.overall_score < 0.75 or any(
-            e.type in ("lexical_gap", "omission") for e in result.errors
+        should_extract = not is_memorization and (
+            result.overall_score < 0.75
+            or any(e.type in ("lexical_gap", "omission") for e in result.errors)
         )
         if should_extract:
             pool = await arq.connections.create_pool(_redis_settings())
