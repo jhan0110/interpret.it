@@ -1,4 +1,9 @@
-import type { ProsodyResult, SemanticError, SemanticResult } from "@/lib/contracts";
+import type {
+  KeyPoint,
+  ProsodyResult,
+  SemanticError,
+  SemanticResult,
+} from "@/lib/contracts";
 
 function severityColor(severity: SemanticError["severity"]): string {
   switch (severity) {
@@ -17,12 +22,12 @@ type Props = {
   audioUrl?: string | null;
 };
 
-/**
- * Review-style breakdown of a single attempt — transcript, reference,
- * score, errors, prosody. Shared by the post-session review route and the
- * in-session feedback state. Light-themed; render on a light background.
- */
 export function AttemptFeedback({ semanticResult, prosodyResult, audioUrl }: Props) {
+  const isMemorization =
+    semanticResult?.mode === "memorization" &&
+    semanticResult.key_points !== null &&
+    semanticResult.key_points.length > 0;
+
   return (
     <>
       {audioUrl != null && (
@@ -35,13 +40,17 @@ export function AttemptFeedback({ semanticResult, prosodyResult, audioUrl }: Pro
       {semanticResult ? (
         <div className="space-y-3">
           <div>
-            <h3 className="text-sm font-semibold">Your interpretation</h3>
+            <h3 className="text-sm font-semibold">
+              {isMemorization ? "Your recall" : "Your interpretation"}
+            </h3>
             <p className="text-sm text-zinc-800">
               {semanticResult.transcript || "(empty)"}
             </p>
           </div>
           <div>
-            <h3 className="text-sm font-semibold">Reference</h3>
+            <h3 className="text-sm font-semibold">
+              {isMemorization ? "Source" : "Reference"}
+            </h3>
             <p className="text-sm text-zinc-800">
               {semanticResult.reference_translation}
             </p>
@@ -52,21 +61,25 @@ export function AttemptFeedback({ semanticResult, prosodyResult, audioUrl }: Pro
               {(semanticResult.overall_score * 100).toFixed(0)}%
             </p>
           </div>
-          {semanticResult.errors.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold">Errors</h3>
-              <ul className="space-y-2">
-                {semanticResult.errors.map((e, i) => (
-                  <li
-                    key={i}
-                    className={`rounded border p-2 text-sm ${severityColor(e.severity)}`}
-                  >
-                    <div className="font-medium">{e.type}</div>
-                    <div className="text-zinc-700">{e.explanation}</div>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {isMemorization ? (
+            <KeyPointsGrid points={semanticResult.key_points ?? []} />
+          ) : (
+            semanticResult.errors.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold">Errors</h3>
+                <ul className="space-y-2">
+                  {semanticResult.errors.map((e, i) => (
+                    <li
+                      key={i}
+                      className={`rounded border p-2 text-sm ${severityColor(e.severity)}`}
+                    >
+                      <div className="font-medium">{e.type}</div>
+                      <div className="text-zinc-700">{e.explanation}</div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
           )}
           <div>
             <h3 className="text-sm font-semibold">Feedback</h3>
@@ -85,5 +98,47 @@ export function AttemptFeedback({ semanticResult, prosodyResult, audioUrl }: Pro
         </div>
       )}
     </>
+  );
+}
+
+function KeyPointsGrid({ points }: { points: KeyPoint[] }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold">Key points</h3>
+      <ul className="mt-1 space-y-1.5">
+        {points.map((p, i) => (
+          <KeyPointRow key={i} point={p} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function KeyPointRow({ point }: { point: KeyPoint }) {
+  const isPrimary = point.importance === "primary";
+  const indicatorColor = point.recalled ? "bg-emerald-500" : "bg-zinc-300";
+  const indicatorChar = point.recalled ? "✓" : "·";
+  const textWeight = isPrimary ? "font-semibold text-zinc-900" : "font-normal text-zinc-700";
+  const textSize = isPrimary ? "text-sm" : "text-xs";
+
+  return (
+    <li className="flex items-start gap-2 rounded border border-zinc-200 bg-white p-2">
+      <span
+        aria-label={point.recalled ? "Recalled" : "Missed"}
+        className={`mt-0.5 inline-flex h-4 w-4 flex-none items-center justify-center rounded-full text-[10px] text-white ${indicatorColor}`}
+      >
+        <span aria-hidden>{indicatorChar}</span>
+      </span>
+      <div className="flex-1">
+        <p className={`${textSize} ${textWeight}`}>{point.text}</p>
+        <span
+          className={`mt-0.5 inline-block text-[10px] uppercase tracking-widest ${
+            isPrimary ? "text-zinc-500" : "text-zinc-400"
+          }`}
+        >
+          {isPrimary ? "Primary" : "Secondary"}
+        </span>
+      </div>
+    </li>
   );
 }
