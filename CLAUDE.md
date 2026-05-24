@@ -92,6 +92,15 @@ Two FastAPI services behind a shared gateway, one Next.js frontend.
   repetition). Actual interpretation quality evaluation uses Claude
   structured output (register, precision, omissions, tense).
 - **Audio blobs in MinIO, not Postgres.** Store file paths in the DB.
+- **Never commit `.env` or any secret-bearing file.** `.env` lives at the
+  repo root and feeds `docker-compose.yml` via `${VAR:-default}`
+  substitution. It contains live API keys (Anthropic, Groq, ElevenLabs)
+  and must stay out of git — confirm `.gitignore` covers it before any
+  commit that touches the file's directory. The same rule applies to
+  any `.env.local`, `.env.bak`, `*.pem`, `*.key`, or credentials file.
+  When restructuring the repo (renames, worktree removal, branch
+  switches), surface `.env*` files to the user before performing
+  destructive operations — they are not recoverable from git history.
 
 ## Content generation parameters
 The "daily training session" form collects:
