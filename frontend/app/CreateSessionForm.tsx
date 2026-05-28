@@ -11,6 +11,9 @@ import type {
 import { LanguageSwitch } from "@/components/LanguageSwitch";
 import { DifficultySlider } from "@/components/DifficultySlider";
 import { DirectionSwitch } from "@/components/DirectionSwitch";
+import { Field, TextInput, TextArea } from "@/components/Field";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { Button } from "@/components/Button";
 
 const GATEWAY_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
@@ -48,11 +51,11 @@ const LEVELS = [
   { value: 5, label: "5 — Expert" },
 ] as const;
 
-const DURATIONS = [
-  { value: "short", label: "Short (~10s/phrase)" },
-  { value: "medium", label: "Medium (~20s/phrase)" },
-  { value: "long", label: "Long (~40s/phrase)" },
-] as const;
+const DURATION_OPTIONS = [
+  { value: "short" as const, label: "Short" },
+  { value: "medium" as const, label: "Medium" },
+  { value: "long" as const, label: "Long" },
+];
 
 export function CreateSessionForm({
   learnerId: presetLearnerId,
@@ -134,11 +137,8 @@ export function CreateSessionForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       {presetLearnerId === undefined && (
-        <div className="flex flex-col gap-1">
-          <label htmlFor="learner-id" className="text-sm font-medium">
-            Learner ID
-          </label>
-          <input
+        <Field label="Learner ID" htmlFor="learner-id">
+          <TextInput
             id="learner-id"
             type="text"
             value={learnerId}
@@ -146,28 +146,27 @@ export function CreateSessionForm({
             placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
             pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
             required
-            className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-[#001b69] focus:outline-none"
           />
-        </div>
+        </Field>
       )}
 
       {isMemorization ? (
         <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Language</span>
+          <span className="text-sm font-medium text-ink">Language</span>
           <LanguageSwitch value={language} onChange={setLanguage} />
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-ink-faint">
             You will hear and recall in the same language.
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Direction</span>
+          <span className="text-sm font-medium text-ink">Direction</span>
           <DirectionSwitch value={direction} onChange={setDirection} />
         </div>
       )}
 
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-sm font-medium">Topics</legend>
+        <legend className="text-sm font-medium text-ink">Topics</legend>
         <div className="grid grid-cols-3 gap-2" role="group" aria-label="Topics">
           {TOPICS.map((t) => {
             const selected = topics.includes(t.value);
@@ -178,11 +177,10 @@ export function CreateSessionForm({
                 role="checkbox"
                 aria-checked={selected}
                 onClick={() => toggleTopic(t.value)}
-                style={selected ? { background: "#001b69" } : undefined}
-                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`border rounded-[2px] px-3 py-1.5 text-sm font-medium transition-[background-color,border-color,color] duration-[120ms] ease-linear ${
                   selected
-                    ? "border-transparent text-white"
-                    : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    ? "bg-accent text-paper border-accent"
+                    : "border-ink-faint text-ink hover:bg-accent-wash"
                 }`}
               >
                 {t.label}
@@ -193,7 +191,7 @@ export function CreateSessionForm({
       </fieldset>
 
       <div className="flex flex-col gap-2">
-        <span className="text-sm font-medium">Difficulty</span>
+        <span className="text-sm font-medium text-ink">Difficulty</span>
         <DifficultySlider
           value={userLevel}
           onChange={setUserLevel}
@@ -202,56 +200,36 @@ export function CreateSessionForm({
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="duration" className="text-sm font-medium">
-          Phrase length
-        </label>
-        <select
-          id="duration"
+        <span className="text-sm font-medium text-ink">Phrase length</span>
+        <SegmentedControl
           value={duration}
-          onChange={(e) =>
-            setDuration(e.target.value as GenerationParams["duration"])
-          }
-          required
-          className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-[#001b69] focus:outline-none"
-        >
-          {DURATIONS.map((d) => (
-            <option key={d.value} value={d.value}>
-              {d.label}
-            </option>
-          ))}
-        </select>
+          onChange={(next) => setDuration(next as GenerationParams["duration"])}
+          options={DURATION_OPTIONS}
+        />
+        <p className="text-xs text-ink-faint">~10s / ~20s / ~40s per phrase</p>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="context" className="text-sm font-medium">
-          Current context <span className="text-zinc-500">(optional)</span>
-        </label>
-        <textarea
+      <Field label="Current context" htmlFor="context" hint="(optional)">
+        <TextArea
           id="context"
           value={currentContext}
           onChange={(e) => setCurrentContext(e.target.value)}
           placeholder="e.g. NATO supply rerouting through Poland"
           rows={2}
-          className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-[#001b69] focus:outline-none"
         />
-      </div>
+      </Field>
 
       {error && (
-        <p role="alert" className="text-sm text-red-400">
+        <p role="alert" className="text-sm text-warning">
           {error}
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        style={{ background: "#001b69" }}
-        className="rounded px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-      >
+      <Button variant="primary" type="submit" disabled={submitting}>
         {submitting
           ? (submittingLabel ?? "Generating...")
           : (submitLabel ?? "Start Session")}
-      </button>
+      </Button>
     </form>
   );
 }

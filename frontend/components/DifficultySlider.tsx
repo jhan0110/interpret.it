@@ -32,8 +32,13 @@ export function DifficultySlider({
               <span
                 key={opt.value}
                 aria-hidden
-                className="absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-500"
-                style={{ left: `${tickPct}%` }}
+                className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  left: `${tickPct}%`,
+                  width: "3px",
+                  height: "3px",
+                  background: "var(--ink-faint)",
+                }}
               />
             );
           })}
@@ -43,12 +48,12 @@ export function DifficultySlider({
           <div
             aria-hidden
             className="pointer-events-none absolute top-1/2 left-0 h-0.5 -translate-y-1/2 transition-all"
-            style={{ width: `${pct}%`, background: "#001b69" }}
+            style={{ width: `${pct}%`, background: "var(--accent)" }}
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute top-1/2 right-0 h-0.5 -translate-y-1/2 bg-zinc-700"
-            style={{ width: `${100 - pct}%` }}
+            className="pointer-events-none absolute top-1/2 right-0 h-0.5 -translate-y-1/2"
+            style={{ width: `${100 - pct}%`, background: "var(--ink-faint)" }}
           />
 
           <style>{`
@@ -76,26 +81,26 @@ export function DifficultySlider({
               appearance: none;
               width: 18px;
               height: 18px;
-              border-radius: 50%;
-              background: #001b69;
+              border-radius: 2px;
+              background: #1F4D2E;
               margin-top: -8px;
-              transition: transform 0.1s;
-              box-shadow: 0 0 0 1px #ededed;
+              transition: transform 0.1s linear;
+              box-shadow: 0 0 0 1px var(--paper);
             }
             .difficulty-range:not(:disabled)::-webkit-slider-thumb:hover {
               transform: scale(1.15);
             }
             .difficulty-range:focus-visible::-webkit-slider-thumb {
-              outline: 2px solid #001b69;
+              outline: 2px solid #1F4D2E;
               outline-offset: 2px;
             }
             .difficulty-range::-moz-range-thumb {
               border: none;
               width: 18px;
               height: 18px;
-              border-radius: 50%;
-              background: #001b69;
-              box-shadow: 0 0 0 1px #ededed;
+              border-radius: 2px;
+              background: #1F4D2E;
+              box-shadow: 0 0 0 1px var(--paper);
             }
           `}</style>
 
@@ -117,7 +122,7 @@ export function DifficultySlider({
         </div>
       </div>
 
-      <p className="text-center text-sm text-zinc-300">
+      <p className="text-center text-sm text-ink-soft">
         {currentOption?.label ?? value}
       </p>
     </div>
