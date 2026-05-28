@@ -45,6 +45,7 @@ from app.db import sessionmaker_factory
 from app.engine.segment_picker import pick_segment_for_session
 from app.engine.state_machine import InvalidTransition, next_state
 from app.models.tables import SessionRow
+from app.attempt_quota import AttemptQuotaExceeded, consume_attempt_quota
 from app.queue import enqueue_analysis
 from app.session_manager import (
     SessionNotFound,
@@ -407,6 +408,32 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                         ws,
                         "invalid_payload",
                         f"byte length mismatch: header={hdr.byte_length} blob={len(blob)}",
+                        attempt_id=hdr.attempt_id,
+                        session_id=session_id,
+                    )
+                    continue
+
+                try:
+                    pre_quota_snap = await snapshot(session_id)
+                except SessionNotFound:
+                    await _send_error(
+                        ws,
+                        "invalid_state",
+                        "session not found",
+                        session_id=session_id,
+                    )
+                    continue
+                try:
+                    await consume_attempt_quota(pre_quota_snap.learner_id)
+                except AttemptQuotaExceeded as exc:
+                    log.warning(
+                        "[attempt_quota.exhausted] learner=%s session=%s detail=%s",
+                        pre_quota_snap.learner_id, session_id, exc,
+                    )
+                    await _send_error(
+                        ws,
+                        "invalid_state",
+                        f"daily attempt cap reached: {exc}",
                         attempt_id=hdr.attempt_id,
                         session_id=session_id,
                     )
