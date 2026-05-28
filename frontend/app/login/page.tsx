@@ -2,6 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Card } from "@/components/Card";
+import { Button } from "@/components/Button";
+import { Field, TextInput } from "@/components/Field";
 
 const GATEWAY_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
@@ -47,51 +50,45 @@ export default function LoginPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 p-8">
       <div>
-        <h1 className="text-2xl font-semibold">Interpretit</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="text-2xl font-semibold text-ink">Interpretit</h1>
+        <p className="mt-1 text-sm text-ink-soft">
           Enter your learner ID to continue.
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="learner-id" className="text-sm font-medium">
-            Learner ID
-          </label>
-          <input
-            id="learner-id"
-            type="text"
-            value={learnerId}
-            onChange={(e) => setLearnerId(e.target.value)}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            required
-            autoFocus
-            className="rounded border border-zinc-300 px-3 py-2 font-mono text-sm focus:border-zinc-500 focus:outline-none"
-          />
-        </div>
+      <Card className="p-6">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <Field label="Learner ID" htmlFor="learner-id">
+            <TextInput
+              id="learner-id"
+              type="text"
+              value={learnerId}
+              onChange={(e) => setLearnerId(e.target.value)}
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              required
+              autoFocus
+            />
+          </Field>
 
-        {error && (
-          <p role="alert" className="text-sm text-red-600">
-            {error}
-          </p>
-        )}
+          {error && (
+            <p role="alert" className="text-sm text-critical">
+              {error}
+            </p>
+          )}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {submitting ? "Checking..." : "Continue"}
-        </button>
+          <Button type="submit" variant="primary" disabled={submitting}>
+            {submitting ? "Checking..." : "Continue"}
+          </Button>
 
-        <button
-          type="button"
-          onClick={() => setLearnerId(DEV_LEARNER_ID)}
-          className="text-center text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-700"
-        >
-          Use dev learner
-        </button>
-      </form>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setLearnerId(DEV_LEARNER_ID)}
+          >
+            Use dev learner
+          </Button>
+        </form>
+      </Card>
     </main>
   );
 }

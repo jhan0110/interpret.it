@@ -1,3 +1,4 @@
+import { Card } from "@/components/Card";
 import { FEATURES } from "./features";
 import { FeatureCard } from "./FeatureCard";
 
@@ -40,13 +41,13 @@ function StreakTile({ days }: { days: number }) {
           ? "You're on a roll"
           : "On fire";
   return (
-    <div className="rounded-xl bg-gradient-to-br from-emerald-900/60 to-emerald-700/30 border border-emerald-800/50 p-5">
-      <p className="text-xs uppercase tracking-wide text-emerald-300/80">
+    <Card className="p-5">
+      <p className="text-[10px] uppercase tracking-wide text-ink-faint">
         Day streak
       </p>
-      <p className="mt-1 text-4xl font-bold text-emerald-100">{days}</p>
-      <p className="mt-2 text-xs italic text-emerald-300/70">{flavor}</p>
-    </div>
+      <p className="mt-1 text-3xl font-bold text-ink">{days}</p>
+      <p className="mt-2 text-sm text-ink-soft">{flavor}</p>
+    </Card>
   );
 }
 
@@ -65,30 +66,30 @@ function MinutesTile({ seconds }: { seconds: number }) {
               ? "a sitcom"
               : "a movie!";
   return (
-    <div className="rounded-xl bg-gradient-to-br from-amber-900/60 to-amber-700/30 border border-amber-800/50 p-5">
-      <p className="text-xs uppercase tracking-wide text-amber-300/80">
+    <Card className="p-5">
+      <p className="text-[10px] uppercase tracking-wide text-ink-faint">
         Minutes interpreted
       </p>
-      <p className="mt-1 text-4xl font-bold text-amber-100">{minutes}</p>
-      <p className="mt-2 text-xs italic text-amber-300/70">
+      <p className="mt-1 text-3xl font-bold text-ink">{minutes}</p>
+      <p className="mt-2 text-sm text-ink-soft">
         that&apos;s {flavor}
       </p>
-    </div>
+    </Card>
   );
 }
 
 function MasteryRow({ score }: { score: MasteryScore }) {
   const pct = Math.round(score.mastery * 100);
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-      <div className="mb-1 flex items-center justify-between text-sm">
-        <span className="font-medium capitalize">{score.domain}</span>
-        <span className="text-zinc-400">
-          {pct}% · {score.attempts_count} attempts
+    <div className="flex flex-col gap-1 border-b border-accent pb-2 last:border-0 last:pb-0">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-medium capitalize text-ink-soft">{score.domain}</span>
+        <span className="text-ink-faint">
+          {pct}% &middot; {score.attempts_count} attempts
         </span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-        <div className="h-full bg-emerald-600" style={{ width: `${pct}%` }} />
+      <div className="h-1.5 w-full overflow-hidden rounded-[1px] bg-paper-tint">
+        <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -100,13 +101,20 @@ function SessionRow({ session }: { session: SessionSummary }) {
     session.mean_score !== null
       ? `${Math.round(session.mean_score * 100)}%`
       : "—";
+  const hasScore = session.mean_score !== null;
+  const scorePct = session.mean_score !== null ? session.mean_score : 0;
+  const scoreBadge = hasScore
+    ? scorePct >= 0.75
+      ? "bg-accent text-paper px-2 py-0.5 text-xs rounded-[2px] font-mono"
+      : "border border-ink-faint text-ink px-2 py-0.5 text-xs rounded-[2px] font-mono"
+    : "text-ink-faint text-xs font-mono";
   return (
-    <li className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-      <span className="capitalize">{session.domain}</span>
-      <span className="text-xs text-zinc-500">{date}</span>
-      <span className="text-zinc-300">{session.attempts_count} attempts</span>
-      <span className="font-mono text-emerald-400">{score}</span>
-    </li>
+    <Card className="flex items-center justify-between gap-3 px-4 py-2">
+      <span className="capitalize text-ink-soft text-sm">{session.domain}</span>
+      <span className="text-xs text-ink-faint">{date}</span>
+      <span className="text-sm text-ink-soft">{session.attempts_count} attempts</span>
+      <span className={scoreBadge}>{score}</span>
+    </Card>
   );
 }
 
@@ -170,15 +178,13 @@ export default async function LearnerHome({
 
   return (
     <div className="flex flex-col gap-10">
-      {/* Compact greeting */}
       <section>
-        <h2 className="text-2xl font-semibold">
+        <h2 className="text-2xl font-semibold text-ink">
           Welcome back{learner ? `, ${learner.display_name}` : ""}.
         </h2>
-        <p className="mt-1 text-sm text-zinc-500">Pick up where you left off.</p>
+        <p className="mt-1 text-sm text-ink-soft">Pick up where you left off.</p>
       </section>
 
-      {/* Feature grid — hero */}
       <section>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {FEATURES.map((f) => {
@@ -196,9 +202,8 @@ export default async function LearnerHome({
         </div>
       </section>
 
-      {/* Overview */}
       <section>
-        <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-500">
+        <h3 className="mb-3 text-[10px] font-medium uppercase tracking-wide text-ink-faint">
           Overview
         </h3>
 
@@ -208,15 +213,15 @@ export default async function LearnerHome({
         </div>
 
         <div className="mt-6">
-          <p className="mb-2 text-xs uppercase tracking-wide text-zinc-500">
+          <p className="mb-3 text-[10px] uppercase tracking-wide text-ink-faint">
             Mastery by domain
           </p>
           {mastery.length === 0 ? (
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-ink-soft">
               No attempts yet &mdash; let&apos;s change that.
             </p>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {mastery.map((m) => (
                 <MasteryRow key={m.domain} score={m} />
               ))}
@@ -225,19 +230,18 @@ export default async function LearnerHome({
         </div>
       </section>
 
-      {/* Recent sessions */}
       <section>
-        <h3 className="mb-2 text-sm font-medium uppercase tracking-wide text-zinc-500">
+        <h3 className="mb-2 text-[10px] font-medium uppercase tracking-wide text-ink-faint">
           Recent sessions
         </h3>
         {sessionList.length === 0 ? (
-          <p className="text-sm text-zinc-500">No sessions yet.</p>
+          <p className="text-sm text-ink-soft">No sessions yet.</p>
         ) : (
-          <ul className="flex flex-col divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-zinc-900">
+          <div className="flex flex-col gap-2">
             {sessionList.map((s) => (
               <SessionRow key={s.id} session={s} />
             ))}
-          </ul>
+          </div>
         )}
       </section>
     </div>
