@@ -53,7 +53,17 @@ def _get_s3() -> boto3.client:
 
 
 def _use_mocks() -> bool:
-    return os.environ.get("USE_MOCKS", "1") == "1"
+    if os.environ.get("USE_MOCKS", "1") == "1":
+        return True
+    try:
+        from app.spend import is_over_ceiling
+
+        if is_over_ceiling():
+            log.warning("[spend.ceiling] reached — TTS falling back to mock for the rest of the day")
+            return True
+    except Exception:  # noqa: BLE001 — spend module must never crash a caller
+        log.exception("spend.is_over_ceiling check failed; proceeding with real TTS")
+    return False
 
 
 def _provider() -> str:
@@ -192,6 +202,23 @@ def _real_tts(text: str, voice: str) -> bytes:
     return _real_tts_elevenlabs(text, voice)
 
 
+def _record_tts_spend(prefix: str, mock_duration_s: int) -> None:
+    """Bump the daily spend counter for a TTS call.
+
+    `prefix` and `mock_duration_s` together disambiguate the call kind:
+    segments are typically 10-40s; feedback clips are ~3s. We classify
+    short clips as 'feedback' for the spend bucket regardless of caller.
+    """
+    try:
+        from app.spend import record_spend
+
+        provider = _provider()
+        kind_suffix = "feedback" if mock_duration_s <= 5 else "segment"
+        record_spend(f"tts_{provider}_{kind_suffix}")
+    except Exception:  # noqa: BLE001
+        log.exception("spend.record_spend failed; continuing")
+
+
 def _generate_and_store(
     text: str, voice_id: str, *, prefix: str, mock_duration_s: int
 ) -> str:
@@ -202,9 +229,11 @@ def _generate_and_store(
     if _object_exists(bucket, key):
         log.info("[tts.cache_hit] key=%s", key)
         return key
-    audio_bytes = (
-        _silent_mp3(mock_duration_s) if _use_mocks() else _real_tts(text, voice_id)
-    )
+    if _use_mocks():
+        audio_bytes = _silent_mp3(mock_duration_s)
+    else:
+        _record_tts_spend(prefix, mock_duration_s)
+        audio_bytes = _real_tts(text, voice_id)
     log.info("[tts.upload.begin] key=%s bytes=%d", key, len(audio_bytes))
     t_up = time.monotonic()
     _get_s3().put_object(

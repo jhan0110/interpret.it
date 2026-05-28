@@ -141,14 +141,21 @@ def render_template(name: str, variables: dict) -> PromptCall:
     )
 
 
-def run_template(name: str, variables: dict) -> dict:
-    """Render + call `structured_generate`. Returns the tool_use input dict."""
+def run_template(name: str, variables: dict, *, spend_kind: str | None = None) -> dict:
+    """Render + call `structured_generate`. Returns the tool_use input dict.
+
+    `spend_kind` lets the caller tag the spend bucket for the daily-spend
+    ceiling. Defaults to a per-template name (``claude_<name>``) so most
+    templates work without explicit override.
+    """
     call = render_template(name, variables)
     log.debug("prompt %s rendered: model=%s tokens=%d", call.name, call.model, call.max_tokens)
+    kind = spend_kind or f"claude_{name.replace('-', '_')}"
     return structured_generate(
         system=call.system,
         user=call.user,
         tool=call.tool,
         model=call.model,
         max_tokens=call.max_tokens,
+        spend_kind=kind,
     )

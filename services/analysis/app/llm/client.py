@@ -55,6 +55,7 @@ def structured_generate(
     tool: dict,
     model: str | None = None,
     max_tokens: int = 1024,
+    spend_kind: str = "claude_eval",
 ) -> dict:
     """Call the LLM with a single tool and return the tool input dict.
 
@@ -91,6 +92,10 @@ def structured_generate(
 
     fn_tool = _anthropic_tool_to_openai(tool)
     fn_name = fn_tool["function"]["name"]
+
+    from app.spend import record_spend
+
+    record_spend(spend_kind)
 
     response = client.chat.completions.create(
         model=resolved_model,

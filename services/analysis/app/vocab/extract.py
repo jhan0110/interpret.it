@@ -88,6 +88,7 @@ Overall score: {payload["overall_score"]:.2f}
             system=_SYSTEM,
             user=user_msg,
             tool=_EXTRACT_TOOL,
+            spend_kind="claude_vocab_extract",
             max_tokens=512,
         )
     except Exception:

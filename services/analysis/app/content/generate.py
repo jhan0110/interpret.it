@@ -173,7 +173,7 @@ def generate_segments(params: GenerateParams) -> GenerationResult:
         log.info("generate_segments: USE_MOCKS=1, returning mock result")
         return _mock_generation(params)
     variables = _template_variables(params)
-    tool_out = run_template("generate_segments", variables)
+    tool_out = run_template("generate_segments", variables, spend_kind="claude_generation")
     raw_segments = tool_out.get("segments", [])
     cleaned = _validate_segments(raw_segments, params.n)
     src, tgt = params.direction.split("-")

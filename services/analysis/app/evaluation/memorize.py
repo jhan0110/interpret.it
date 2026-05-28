@@ -222,6 +222,7 @@ def extract_key_points(
         user=f"Source phrase ({source_lang}):\n\n{source_text}",
         tool=_EXTRACT_TOOL,
         max_tokens=1024,
+        spend_kind="claude_keypoints",
     )
     claude_ms = int((time.monotonic() - t0) * 1000)
     log.info(

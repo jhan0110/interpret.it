@@ -91,6 +91,7 @@ def generate_reference(
         system=system,
         user=f"Source text ({source_lang}):\n\n{source_text}",
         tool=_REFERENCE_TOOL,
+        spend_kind="claude_reference",
     )
     claude_ms = int((time.monotonic() - t_claude) * 1000)
     log.info("[reference.claude.done] took=%dms", claude_ms)

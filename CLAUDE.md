@@ -92,6 +92,22 @@ Two FastAPI services behind a shared gateway, one Next.js frontend.
   repetition). Actual interpretation quality evaluation uses Claude
   structured output (register, precision, omissions, tense).
 - **Audio blobs in MinIO, not Postgres.** Store file paths in the DB.
+- **Rate limits & spend ceiling.** Two layers gate external-API traffic:
+  1. **Per-learner attempt cap** (`services/gateway/app/attempt_quota.py`) —
+     Redis counter `attempt_quota:<learner>:<UTC-date>` with 24h TTL. Default
+     `ATTEMPT_QUOTA_DAILY=100` per learner per UTC day. Dev learner has a
+     1000/day override. Enforced at the WS `audio.submit` boundary BEFORE
+     MinIO upload / DB write / analysis enqueue.
+  2. **Global daily spend ceiling** (`services/analysis/app/spend.py`) —
+     Redis counter `spend:<UTC-date>` in millicents. Every paid call site
+     (Claude via OpenRouter, OpenAI/ElevenLabs TTS) increments by an estimated
+     per-call cost. When the total reaches `MAX_DAILY_USD` (default `$5`),
+     `is_over_ceiling()` returns True and TTS falls back to mock mode for
+     the rest of the day. Per-kind cost overrides via `EST_COST_<KIND>` env
+     vars (millicents).
+
+  Both default to permissive dev-friendly values. Tighten for production
+  via env vars; don't add new bypasses without a clear product reason.
 - **Never commit `.env` or any secret-bearing file.** `.env` lives at the
   repo root and feeds `docker-compose.yml` via `${VAR:-default}`
   substitution. It contains live API keys (Anthropic, Groq, ElevenLabs)
