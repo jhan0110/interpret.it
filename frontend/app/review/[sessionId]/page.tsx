@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { AttemptFeedback } from "@/components/AttemptFeedback";
+import { Button } from "@/components/Button";
+import { Card } from "@/components/Card";
 import type {
   Attempt,
   CompleteSessionResponse,
@@ -50,7 +52,6 @@ export default async function ReviewPage({
     fetchSummary(sessionId),
   ]);
 
-  // Fetch audio URLs for each attempt in parallel; missing/errored → null.
   const audioUrls = await Promise.all(
     attempts.map((a) => fetchAttemptAudioUrl(sessionId, a.id))
   );
@@ -59,45 +60,42 @@ export default async function ReviewPage({
 
   return (
     <div className="space-y-8">
-      <nav className="flex items-center justify-between border-b border-zinc-200 pb-3">
+      <nav className="flex items-center justify-between border-b border-accent pb-3">
         <Link
           href={learnerId ? `/learner/${learnerId}` : "/"}
-          className="inline-flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-900"
+          className="inline-flex items-center gap-1 text-sm text-accent hover:underline underline-offset-2"
         >
           <span aria-hidden>←</span>
           <span>Home</span>
         </Link>
         {learnerId && (
-          <Link
-            href={`/learner/${learnerId}/train`}
-            className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
-          >
-            Start another session
+          <Link href={`/learner/${learnerId}/train`}>
+            <Button variant="primary">Start another session</Button>
           </Link>
         )}
       </nav>
 
       {summary && (
-        <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
-          <h2 className="text-lg font-medium">Summary</h2>
-          <p className="text-sm text-zinc-600">
+        <Card as="section">
+          <h2 className="text-lg font-medium text-ink">Summary</h2>
+          <p className="text-sm text-ink-soft">
             {summary.attempts_count} attempt(s) — mean score{" "}
             {(summary.mean_score * 100).toFixed(0)}%
           </p>
-        </section>
+        </Card>
       )}
 
       <section className="space-y-6">
         {attempts.length === 0 && (
-          <p className="text-sm text-zinc-500">No attempts recorded.</p>
+          <p className="text-sm text-ink-faint">No attempts recorded.</p>
         )}
         {attempts.map((a, idx) => (
-          <article key={a.id} className="rounded-md border border-zinc-200 p-4">
+          <Card key={a.id} as="article">
             <header className="mb-3 flex items-baseline justify-between">
-              <span className="text-xs uppercase tracking-widest text-zinc-500">
+              <span className="text-xs uppercase tracking-widest text-ink-faint">
                 Attempt
               </span>
-              <span className="font-mono text-xs text-zinc-400">{a.id}</span>
+              <span className="font-mono text-xs text-ink-faint">{a.id}</span>
             </header>
 
             <AttemptFeedback
@@ -105,7 +103,7 @@ export default async function ReviewPage({
               prosodyResult={a.prosody_result}
               audioUrl={audioUrls[idx]}
             />
-          </article>
+          </Card>
         ))}
       </section>
     </div>

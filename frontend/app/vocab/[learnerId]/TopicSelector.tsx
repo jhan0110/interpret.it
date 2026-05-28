@@ -76,7 +76,7 @@ export function TopicSelector({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-medium text-zinc-400">Study topics</p>
+      <p className="text-sm font-medium text-ink-soft">Study topics</p>
       <div className="flex flex-wrap gap-2">
         {ALL_DOMAINS.map(({ value, label }) => {
           const active = activeDomains.has(value);
@@ -87,18 +87,21 @@ export function TopicSelector({
               onClick={() => (active ? removeTopic(value) : addTopic(value))}
               disabled={busy}
               className={[
-                "rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50",
+                "rounded-[2px] px-3 py-1.5 text-sm transition-colors",
+                busy ? "opacity-60 cursor-not-allowed" : "",
                 active
-                  ? "bg-emerald-800 text-emerald-200 hover:bg-emerald-700"
-                  : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200",
-              ].join(" ")}
+                  ? "border border-accent bg-accent text-paper"
+                  : "border border-ink-faint bg-paper-tint text-ink hover:bg-accent-wash",
+              ]
+                .filter(Boolean)
+                .join(" ")}
             >
               {busy ? "..." : active ? `${label} ✓` : label}
             </button>
           );
         })}
       </div>
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className="text-xs text-critical">{error}</p>}
     </div>
   );
 }

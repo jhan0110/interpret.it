@@ -1,3 +1,4 @@
+import { Card } from "@/components/Card";
 import { DeckView } from "./DeckView";
 import { TopicSelector } from "./TopicSelector";
 
@@ -76,9 +77,9 @@ export default async function VocabPage({
       {stats && (
         <div className="grid grid-cols-4 gap-3">
           <StatBox label="Total cards" value={stats.total} />
-          <StatBox label="Due now" value={stats.due_now} highlight />
-          <StatBox label="Knowledge gaps" value={stats.knowledge_gaps} amber />
-          <StatBox label="Memory gaps" value={stats.memory_gaps} blue />
+          <StatBox label="Due now" value={stats.due_now} variant="highlight" />
+          <StatBox label="Knowledge gaps" value={stats.knowledge_gaps} variant="amber" />
+          <StatBox label="Memory gaps" value={stats.memory_gaps} />
         </div>
       )}
 
@@ -87,7 +88,7 @@ export default async function VocabPage({
       {dueCards.length > 0 ? (
         <DeckView learnerId={learnerId} initialCards={dueCards} />
       ) : (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-ink-faint">
           No cards due right now. Add a topic above or come back later.
         </p>
       )}
@@ -98,27 +99,22 @@ export default async function VocabPage({
 function StatBox({
   label,
   value,
-  highlight,
-  amber,
-  blue,
+  variant,
 }: {
   label: string;
   value: number;
-  highlight?: boolean;
-  amber?: boolean;
-  blue?: boolean;
+  variant?: "highlight" | "amber";
 }) {
-  const valueClass = highlight
-    ? "text-emerald-400"
-    : amber
-      ? "text-amber-400"
-      : blue
-        ? "text-blue-400"
-        : "text-zinc-100";
+  const valueClass =
+    variant === "highlight"
+      ? "text-2xl font-semibold text-accent"
+      : variant === "amber"
+        ? "text-2xl font-semibold text-warning"
+        : "text-2xl font-semibold text-ink";
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-      <p className={`text-2xl font-semibold ${valueClass}`}>{value}</p>
-      <p className="mt-1 text-xs text-zinc-500">{label}</p>
-    </div>
+    <Card>
+      <p className={valueClass}>{value}</p>
+      <p className="mt-1 text-[10px] uppercase tracking-wider text-ink-faint">{label}</p>
+    </Card>
   );
 }
