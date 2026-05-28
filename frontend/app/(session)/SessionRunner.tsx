@@ -15,6 +15,8 @@ import type {
 } from "@/lib/contracts";
 import { WSClient } from "@/lib/ws";
 import { AttemptFeedback } from "@/components/AttemptFeedback";
+import { Button } from "@/components/Button";
+import { Card } from "@/components/Card";
 
 /**
  * Active session UI. Per CLAUDE.md, no text is shown while the learner is
@@ -29,11 +31,11 @@ type Props = {
 type CognitiveBand = "low" | "moderate" | "high" | "overloaded" | "idle";
 
 const BAND_COLORS: Record<CognitiveBand, string> = {
-  idle: "bg-zinc-700",
-  low: "bg-emerald-500",
-  moderate: "bg-yellow-400",
-  high: "bg-orange-500",
-  overloaded: "bg-red-600",
+  idle: "bg-ink-faint",
+  low: "bg-accent",
+  moderate: "bg-[#B5901A]",
+  high: "bg-warning",
+  overloaded: "bg-critical",
 };
 
 const BAND_LABELS: Record<CognitiveBand, string> = {
@@ -72,25 +74,20 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
     summary?: string | null;
   } | null>(null);
 
-  // Item 2: segment counter
   const [segmentNumber, setSegmentNumber] = useState(0);
 
-  // Item 3: calibrated-delay countdown
   const [delayMs, setDelayMs] = useState(0);
   const [remainingMs, setRemainingMs] = useState(0);
 
-  // Audio phase tracking for two-phase progress bar
   const [audioDurationMs, setAudioDurationMs] = useState(0);
   const [audioElapsedMs, setAudioElapsedMs] = useState(0);
   const [audioEnded, setAudioEnded] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Item 1: generation complete summary — show for ~3s then fade out
   const [showSummary, setShowSummary] = useState(false);
   const [summaryVisible, setSummaryVisible] = useState(false);
 
-  // Item 4: recording level meter (0–1)
   const [recordingLevel, setRecordingLevel] = useState(0);
   const meterStreamRef = useRef<MediaStream | null>(null);
 
@@ -103,7 +100,6 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
 
   const url = useMemo(() => `${wsBaseUrl}/ws/sessions/${sessionId}`, [wsBaseUrl, sessionId]);
 
-  // Clear the delay countdown
   function clearDelayCountdown() {
     if (delayIntervalRef.current !== null) {
       clearInterval(delayIntervalRef.current);
@@ -111,7 +107,6 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
     }
   }
 
-  // Tear down Web Audio level meter
   function teardownLevelMeter() {
     if (levelRafRef.current !== null) {
       cancelAnimationFrame(levelRafRef.current);
@@ -139,18 +134,14 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
       console.log("[WS] segment.play", p);
       setCurrentSegmentId(p.segment_id);
       setAudioUrl(p.audio_url);
-      // New segment — clear the previous attempt's feedback.
       setSemanticResult(null);
       setProsodyResult(null);
-      // Item 2: increment segment counter
       setSegmentNumber((n) => n + 1);
-      // Item 3: capture delay for countdown; reset audio phase state
       setDelayMs(p.delay_ms ?? 0);
       setRemainingMs(p.delay_ms ?? 0);
       setAudioDurationMs(0);
       setAudioElapsedMs(0);
       setAudioEnded(false);
-      // Fallback: if metadata doesn't load within 1.5s, treat audio as ended
       if (audioFallbackRef.current !== null) clearTimeout(audioFallbackRef.current);
       audioFallbackRef.current = setTimeout(() => {
         setAudioDurationMs((prev) => {
@@ -193,7 +184,6 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
           target: p.count,
           summary: p.scenario_summary,
         });
-        // Item 1: show summary for ~3s then fade
         if (p.scenario_summary) {
           setShowSummary(true);
           setSummaryVisible(true);
@@ -223,7 +213,6 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, sessionId]);
 
-  // Item 3: run countdown after audio ends (not at audio start)
   useEffect(() => {
     clearDelayCountdown();
     if (audioEnded && state === "listening" && delayMs > 0) {
@@ -243,23 +232,17 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioEnded, state, delayMs]);
 
-  // Item 4: set up level meter while recording
   useEffect(() => {
     if (state !== "recording") {
       teardownLevelMeter();
       return;
     }
 
-    // Try to attach to the active stream from the recorder
     let cancelled = false;
     const attachMeter = async () => {
-      // Give the recorder a tick to initialise
       await new Promise<void>((r) => setTimeout(r, 0));
       if (cancelled) return;
 
-      // Attempt to pull the stream from the MediaRecorder internals.
-      // AttemptRecorder keeps `stream` private, so we use getUserMedia as a
-      // fallback tap — we ask for the same constraints, get the same device.
       if (typeof window === "undefined") return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const AudioCtx: typeof AudioContext =
@@ -273,7 +256,6 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
           audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
         });
       } catch {
-        // If we can't get mic access for the analyser, show a pulsing dot instead
         return;
       }
       if (cancelled) {
@@ -365,7 +347,6 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
     generation.state === "pending" &&
     state === "idle";
 
-  // Two-phase bar: audio phase then delay phase
   const audioPhase = audioDurationMs > 0 && !audioEnded;
   const delayPhase = audioEnded && delayMs > 0 && remainingMs > 50;
   const countdownActive = state === "listening" && (audioPhase || delayPhase);
@@ -381,17 +362,17 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
   return (
     <div className="flex w-full max-w-2xl flex-col items-center gap-8 p-8 text-center">
 
-      {/* ── Item 1: Generation overlay ── */}
+      {/* Generation overlay */}
       {generating && (
-        <div
+        <Card
           role="status"
           aria-live="polite"
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-900/60 p-5 shadow-md"
+          className="w-full p-5"
         >
-          <div className="mb-3 flex items-center justify-center gap-2 text-sm font-medium text-zinc-100">
+          <div className="mb-3 flex items-center justify-center gap-2 text-sm font-medium text-ink">
             {/* Spinner */}
             <svg
-              className="h-4 w-4 animate-spin text-zinc-400"
+              className="h-4 w-4 animate-spin text-accent"
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
               viewBox="0 0 24 24"
@@ -415,26 +396,26 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
           </div>
 
           {/* Progress bar */}
-          <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-zinc-700">
+          <div className="mb-2 h-2 w-full overflow-hidden rounded-[2px] bg-paper-tint">
             <div
-              className="h-2 rounded-full bg-emerald-500 transition-all duration-300"
+              className="h-2 bg-accent transition-all duration-300"
               style={{
                 width: `${generation.target > 0 ? Math.round((generation.ready / generation.target) * 100) : 0}%`,
               }}
             />
           </div>
-          <div className="text-xs text-zinc-400">
+          <div className="text-xs text-ink-soft">
             {generation.ready} of {generation.target}
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* Item 1: summary flash after generation.complete */}
+      {/* Summary flash after generation.complete */}
       {showSummary && generation?.summary && (
         <div
           role="status"
           aria-live="polite"
-          className={`w-full rounded-lg border border-emerald-700 bg-emerald-900/30 p-4 text-sm text-emerald-200 transition-opacity duration-500 ${
+          className={`w-full rounded-[2px] border border-accent p-4 text-sm text-ink-soft transition-opacity duration-500 ${
             summaryVisible ? "opacity-100" : "opacity-0"
           }`}
         >
@@ -445,29 +426,27 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
       {generation?.state === "failed" && (
         <div
           role="alert"
-          className="w-full rounded border border-red-700 bg-red-900/40 p-3 text-sm text-red-200"
+          className="w-full rounded-[2px] border border-critical p-3 text-sm text-critical"
         >
           Generation failed. Try a smaller session or different topics.
         </div>
       )}
 
-      {/* ── Item 2 + A11y: cognitive load dot + segment counter ── */}
+      {/* Cognitive load dot + segment counter */}
       <div className="flex flex-col items-center gap-2">
-        <div className="flex items-center gap-3 text-sm uppercase tracking-widest text-zinc-400">
+        <div className="flex items-center gap-3 text-sm uppercase tracking-widest text-ink-faint">
           <span
             aria-label={`Cognitive load: ${BAND_LABELS[band]}`}
-            className={`h-3 w-3 rounded-full ${BAND_COLORS[band]}`}
+            className={`h-3 w-3 rounded-[2px] ${BAND_COLORS[band]}`}
           />
-          {/* Item 6: visible text label for sighted users */}
-          <span className="text-xs text-zinc-500">
-            Load: <span className="text-zinc-300">{BAND_LABELS[band]}</span>
+          <span className="text-xs text-ink-soft">
+            Load: <span className="text-ink">{BAND_LABELS[band]}</span>
           </span>
           <span>{STATE_LABELS[state]}</span>
         </div>
 
-        {/* Item 2: segment progress */}
         {state !== "idle" && segmentNumber > 0 && (
-          <div className="text-xs uppercase tracking-widest text-zinc-500">
+          <div className="text-xs uppercase tracking-widest text-ink-faint">
             {generation?.target != null
               ? `Segment ${segmentNumber} of ${generation.target}`
               : `Segment ${segmentNumber}`}
@@ -475,15 +454,15 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
         )}
       </div>
 
-      {/* ── Item 3: two-phase progress bar (audio then delay) ── */}
+      {/* Two-phase progress bar (audio then delay) */}
       {countdownActive && (
         <div className="w-full" role="timer" aria-label="Recording countdown">
-          <div className="mb-1 text-xs uppercase tracking-widest text-zinc-500">
+          <div className="mb-1 text-xs uppercase tracking-widest text-ink-faint">
             {phaseLabel}
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-700">
+          <div className="h-1.5 w-full overflow-hidden rounded-[2px] bg-paper-tint">
             <div
-              className={`h-1.5 rounded-full transition-all duration-75 ${audioPhase ? "bg-blue-400" : "bg-yellow-400"}`}
+              className={`h-1.5 transition-all duration-75 ${audioPhase ? "bg-ink-soft" : "bg-accent"}`}
               style={{ width: `${Math.round(overallProgress * 100)}%` }}
             />
           </div>
@@ -492,26 +471,23 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
 
       <div className="text-2xl">
         {state === "listening" && <span aria-hidden>♪</span>}
-        {/* Item 4: recording level meter replaces static ● rec */}
         {state === "recording" && (
           <div className="flex flex-col items-center gap-2" aria-label="Recording in progress">
-            <span aria-hidden className="text-sm uppercase tracking-widest text-red-400">● rec</span>
-            {/* Level bar — or pulsing dot if AudioContext unavailable */}
+            <span aria-hidden className="text-sm uppercase tracking-widest text-warning">● rec</span>
             {recordingLevel > 0 ? (
-              <div className="h-2 w-40 overflow-hidden rounded-full bg-zinc-700">
+              <div className="h-2 w-40 overflow-hidden rounded-[2px] bg-paper-tint">
                 <div
-                  className="h-2 rounded-full bg-red-500 transition-none"
+                  className="h-2 bg-warning transition-none"
                   style={{ width: `${Math.round(recordingLevel * 100)}%` }}
                 />
               </div>
             ) : (
-              <div className="h-2 w-2 animate-pulse rounded-full bg-red-500" aria-hidden />
+              <div className="h-2 w-2 animate-pulse rounded-[2px] bg-warning" aria-hidden />
             )}
           </div>
         )}
         {state === "analyzing" && <AnalyzingProgress />}
         {state === "feedback" && <span aria-hidden>✓</span>}
-        {/* Item 5: complete state handled below */}
       </div>
 
       {audioUrl && state === "listening" && (
@@ -543,72 +519,60 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
 
       {/* Feedback page — review-style breakdown of the just-finished attempt */}
       {state === "feedback" && (
-        <div className="w-full rounded-lg bg-white p-6 text-left text-black">
+        <Card className="w-full text-left">
           <AttemptFeedback
             semanticResult={semanticResult}
             prosodyResult={prosodyResult}
           />
-        </div>
+        </Card>
       )}
 
       <div className="flex gap-3">
         {state === "idle" && (
-          <button
-            className="rounded-full bg-white px-6 py-3 text-black"
-            onClick={requestSegment}
-          >
+          <Button variant="primary" onClick={requestSegment}>
             Begin
-          </button>
+          </Button>
         )}
         {(state === "listening" || state === "feedback") && (
-          <button
-            className="rounded-full bg-red-600 px-6 py-3 disabled:cursor-not-allowed disabled:opacity-40"
+          <Button
+            variant="primary"
             onClick={startRecording}
             disabled={countdownActive}
             aria-disabled={countdownActive}
+            className="session-record-btn"
           >
             Record
-          </button>
+          </Button>
         )}
         {state === "recording" && (
-          <button
-            className="rounded-full bg-zinc-200 px-6 py-3 text-black"
-            onClick={stopRecording}
-          >
+          <Button variant="ghost" onClick={stopRecording}>
             Stop
-          </button>
+          </Button>
         )}
         {state === "feedback" && (
-          <button
-            className="rounded-full bg-zinc-700 px-6 py-3"
-            onClick={requestSegment}
-          >
+          <Button variant="ghost" onClick={requestSegment}>
             Next
-          </button>
+          </Button>
         )}
 
-        {/* Item 5: "View review" CTA on complete */}
         {state === "complete" && (
-          <button
-            className="rounded-full bg-emerald-600 px-6 py-3 text-white hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+          <Button
+            variant="primary"
             onClick={() => router.push(`/review/${sessionId}`)}
           >
             View review
-          </button>
+          </Button>
         )}
 
         {state !== "complete" && (
-          <button
-            className="rounded-full border border-zinc-600 px-6 py-3 text-zinc-300"
-            onClick={completeSession}
-          >
+          <Button variant="ghost" onClick={completeSession}>
             End session
-          </button>
+          </Button>
         )}
       </div>
 
       {error && (
-        <div role="alert" className="text-xs text-red-400">
+        <div role="alert" className="text-xs text-critical">
           {error}
         </div>
       )}
@@ -665,19 +629,19 @@ function AnalyzingProgress() {
 
   return (
     <div className="flex w-72 flex-col items-center gap-2" aria-label="Analyzing">
-      <div className="text-xs uppercase tracking-widest text-zinc-400">
+      <div className="text-xs uppercase tracking-widest text-ink-soft">
         {label}
-        <span className="ml-1 inline-block w-4 text-left text-zinc-600">
+        <span className="ml-1 inline-block w-4 text-left text-ink-faint">
           {".".repeat(Math.floor((elapsed / 400) % 4))}
         </span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+      <div className="h-2 w-full overflow-hidden rounded-[2px] bg-paper-tint">
         <div
-          className="h-2 rounded-full bg-emerald-500 transition-all duration-100"
+          className="h-2 bg-accent transition-all duration-100"
           style={{ width: `${Math.min(95, Math.max(2, pct))}%` }}
         />
       </div>
-      <div className="text-[10px] text-zinc-600">
+      <div className="text-[10px] text-ink-faint">
         {(elapsed / 1000).toFixed(1)}s
       </div>
     </div>

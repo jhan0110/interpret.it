@@ -23,6 +23,8 @@ import type {
   WSStateChange,
 } from "@/lib/contracts";
 import { AttemptFeedback } from "@/components/AttemptFeedback";
+import { Button } from "@/components/Button";
+import { Card } from "@/components/Card";
 
 type Props = {
   sessionId: string;
@@ -33,11 +35,11 @@ type Props = {
 type CognitiveBand = "low" | "moderate" | "high" | "overloaded" | "idle";
 
 const BAND_COLORS: Record<CognitiveBand, string> = {
-  idle: "bg-zinc-700",
-  low: "bg-emerald-500",
-  moderate: "bg-yellow-400",
-  high: "bg-orange-500",
-  overloaded: "bg-red-600",
+  idle: "bg-ink-faint",
+  low: "bg-accent",
+  moderate: "bg-[#B5901A]",
+  high: "bg-warning",
+  overloaded: "bg-critical",
 };
 
 const BAND_LABELS: Record<CognitiveBand, string> = {
@@ -553,14 +555,14 @@ export function MemorizationRunner({
   return (
     <div className="flex w-full max-w-2xl flex-col items-center gap-8 p-8 text-center">
       {generating && (
-        <div
+        <Card
           role="status"
           aria-live="polite"
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-900/60 p-5 shadow-md"
+          className="w-full p-5"
         >
-          <div className="mb-3 flex items-center justify-center gap-2 text-sm font-medium text-zinc-100">
+          <div className="mb-3 flex items-center justify-center gap-2 text-sm font-medium text-ink">
             <svg
-              className="h-4 w-4 animate-spin text-zinc-400"
+              className="h-4 w-4 animate-spin text-accent"
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
               viewBox="0 0 24 24"
@@ -583,25 +585,25 @@ export function MemorizationRunner({
             Preparing your memorization set…
           </div>
 
-          <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-zinc-700">
+          <div className="mb-2 h-2 w-full overflow-hidden rounded-[2px] bg-paper-tint">
             <div
-              className="h-2 rounded-full bg-emerald-500 transition-all duration-300"
+              className="h-2 bg-accent transition-all duration-300"
               style={{
                 width: `${generation.target > 0 ? Math.round((generation.ready / generation.target) * 100) : 0}%`,
               }}
             />
           </div>
-          <div className="text-xs text-zinc-400">
+          <div className="text-xs text-ink-soft">
             {generation.ready} of {generation.target}
           </div>
-        </div>
+        </Card>
       )}
 
       {showSummary && generation?.summary && (
         <div
           role="status"
           aria-live="polite"
-          className={`w-full rounded-lg border border-emerald-700 bg-emerald-900/30 p-4 text-sm text-emerald-200 transition-opacity duration-500 ${
+          className={`w-full rounded-[2px] border border-accent p-4 text-sm text-ink-soft transition-opacity duration-500 ${
             summaryVisible ? "opacity-100" : "opacity-0"
           }`}
         >
@@ -612,26 +614,26 @@ export function MemorizationRunner({
       {generation?.state === "failed" && (
         <div
           role="alert"
-          className="w-full rounded border border-red-700 bg-red-900/40 p-3 text-sm text-red-200"
+          className="w-full rounded-[2px] border border-critical p-3 text-sm text-critical"
         >
           Generation failed. Try a smaller session or different topics.
         </div>
       )}
 
       <div className="flex flex-col items-center gap-2">
-        <div className="flex items-center gap-3 text-sm uppercase tracking-widest text-zinc-400">
+        <div className="flex items-center gap-3 text-sm uppercase tracking-widest text-ink-faint">
           <span
             aria-label={`Cognitive load: ${BAND_LABELS[band]}`}
-            className={`h-3 w-3 rounded-full ${BAND_COLORS[band]}`}
+            className={`h-3 w-3 rounded-[2px] ${BAND_COLORS[band]}`}
           />
-          <span className="text-xs text-zinc-500">
-            Load: <span className="text-zinc-300">{BAND_LABELS[band]}</span>
+          <span className="text-xs text-ink-soft">
+            Load: <span className="text-ink">{BAND_LABELS[band]}</span>
           </span>
           <span>{STATE_LABELS[state]}</span>
         </div>
 
         {state !== "idle" && segmentNumber > 0 && (
-          <div className="text-xs uppercase tracking-widest text-zinc-500">
+          <div className="text-xs uppercase tracking-widest text-ink-faint">
             {generation?.target != null
               ? `Segment ${segmentNumber} of ${generation.target}`
               : `Segment ${segmentNumber}`}
@@ -641,12 +643,12 @@ export function MemorizationRunner({
 
       {countdownActive && (
         <div className="w-full" role="timer" aria-label="Recall countdown">
-          <div className="mb-1 text-xs uppercase tracking-widest text-zinc-500">
+          <div className="mb-1 text-xs uppercase tracking-widest text-ink-faint">
             {phaseLabel}
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-700">
+          <div className="h-1.5 w-full overflow-hidden rounded-[2px] bg-paper-tint">
             <div
-              className={`h-1.5 rounded-full transition-all duration-75 ${audioPhase ? "bg-blue-400" : "bg-yellow-400"}`}
+              className={`h-1.5 transition-all duration-75 ${audioPhase ? "bg-ink-soft" : "bg-accent"}`}
               style={{ width: `${Math.round(overallProgress * 100)}%` }}
             />
           </div>
@@ -657,18 +659,18 @@ export function MemorizationRunner({
         {state === "listening" && <span aria-hidden>♪</span>}
         {state === "recording" && (
           <div className="flex flex-col items-center gap-2" aria-label="Recall in progress">
-            <span aria-hidden className="text-sm uppercase tracking-widest text-red-400">
+            <span aria-hidden className="text-sm uppercase tracking-widest text-warning">
               ● rec
             </span>
             {recordingLevel > 0 ? (
-              <div className="h-2 w-40 overflow-hidden rounded-full bg-zinc-700">
+              <div className="h-2 w-40 overflow-hidden rounded-[2px] bg-paper-tint">
                 <div
-                  className="h-2 rounded-full bg-red-500 transition-none"
+                  className="h-2 bg-warning transition-none"
                   style={{ width: `${Math.round(recordingLevel * 100)}%` }}
                 />
               </div>
             ) : (
-              <div className="h-2 w-2 animate-pulse rounded-full bg-red-500" aria-hidden />
+              <div className="h-2 w-2 animate-pulse rounded-[2px] bg-warning" aria-hidden />
             )}
           </div>
         )}
@@ -705,19 +707,18 @@ export function MemorizationRunner({
 
       {replayShown && (
         <div className="flex flex-col items-center gap-1">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
             onClick={requestReplay}
             disabled={replayDisabled}
-            className="rounded-full border border-zinc-500 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Replay segment
-          </button>
-          <div className="text-[11px] uppercase tracking-widest text-zinc-500">
+          </Button>
+          <div className="text-sm text-ink-faint">
             {replaysRemaining} {replaysRemaining === 1 ? "replay" : "replays"} left
           </div>
           {replayDenied && (
-            <div role="alert" className="text-xs text-amber-400">
+            <div role="alert" className="text-sm text-warning">
               {replayDenied}
             </div>
           )}
@@ -725,71 +726,59 @@ export function MemorizationRunner({
       )}
 
       {state === "feedback" && (
-        <div className="w-full rounded-lg bg-white p-6 text-left text-black">
+        <Card className="w-full text-left">
           <AttemptFeedback
             semanticResult={semanticResult}
             prosodyResult={prosodyResult}
           />
-        </div>
+        </Card>
       )}
 
       <div className="flex gap-3">
         {state === "idle" && (
-          <button
-            className="rounded-full bg-white px-6 py-3 text-black"
-            onClick={requestSegment}
-          >
+          <Button variant="primary" onClick={requestSegment}>
             Begin
-          </button>
+          </Button>
         )}
         {(state === "listening" || state === "feedback") && (
-          <button
-            className="rounded-full bg-red-600 px-6 py-3 disabled:cursor-not-allowed disabled:opacity-40"
+          <Button
+            variant="primary"
             onClick={startRecording}
             disabled={countdownActive}
             aria-disabled={countdownActive}
           >
             Recall
-          </button>
+          </Button>
         )}
         {state === "recording" && (
-          <button
-            className="rounded-full bg-zinc-200 px-6 py-3 text-black"
-            onClick={stopRecording}
-          >
+          <Button variant="ghost" onClick={stopRecording}>
             Stop
-          </button>
+          </Button>
         )}
         {state === "feedback" && (
-          <button
-            className="rounded-full bg-zinc-700 px-6 py-3"
-            onClick={requestSegment}
-          >
+          <Button variant="ghost" onClick={requestSegment}>
             Next
-          </button>
+          </Button>
         )}
 
         {state === "complete" && (
-          <button
-            className="rounded-full bg-emerald-600 px-6 py-3 text-white hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+          <Button
+            variant="primary"
             onClick={() => router.push(`/review/${sessionId}`)}
           >
             View review
-          </button>
+          </Button>
         )}
 
         {state !== "complete" && (
-          <button
-            className="rounded-full border border-zinc-600 px-6 py-3 text-zinc-300"
-            onClick={completeSession}
-          >
+          <Button variant="ghost" onClick={completeSession}>
             End session
-          </button>
+          </Button>
         )}
       </div>
 
       {error && (
-        <div role="alert" className="text-xs text-red-400">
+        <div role="alert" className="text-xs text-critical">
           {error}
         </div>
       )}
@@ -847,19 +836,19 @@ function AnalyzingProgress() {
 
   return (
     <div className="flex w-72 flex-col items-center gap-2" aria-label="Analyzing">
-      <div className="text-xs uppercase tracking-widest text-zinc-400">
+      <div className="text-xs uppercase tracking-widest text-ink-soft">
         {label}
-        <span className="ml-1 inline-block w-4 text-left text-zinc-600">
+        <span className="ml-1 inline-block w-4 text-left text-ink-faint">
           {".".repeat(Math.floor((elapsed / 400) % 4))}
         </span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+      <div className="h-2 w-full overflow-hidden rounded-[2px] bg-paper-tint">
         <div
-          className="h-2 rounded-full bg-emerald-500 transition-all duration-100"
+          className="h-2 bg-accent transition-all duration-100"
           style={{ width: `${Math.min(95, Math.max(2, pct))}%` }}
         />
       </div>
-      <div className="text-[10px] text-zinc-600">
+      <div className="text-[10px] text-ink-faint">
         {(elapsed / 1000).toFixed(1)}s
       </div>
     </div>
