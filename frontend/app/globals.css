@@ -1,25 +1,46 @@
 @import "tailwindcss";
 
 :root {
-  --background: #050505;
-  --foreground: #ededed;
-  --accent: #001b69;
-  --muted: #18181b;
-  --border: #27272a;
+  --paper: #F4EFE4;
+  --paper-tint: #EAE4D5;
+  --ink: #14140F;
+  --ink-soft: #4A463E;
+  --ink-faint: #8A857A;
+  --accent: #1F4D2E;
+  --accent-strong: #143521;
+  --accent-wash: rgba(31, 77, 46, 0.06);
+  --warning: #8A3B12;
+  --critical: #6A0F0F;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-paper: var(--paper);
+  --color-paper-tint: var(--paper-tint);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
   --color-accent: var(--accent);
-  --color-muted: var(--muted);
-  --color-border: var(--border);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-wash: var(--accent-wash);
+  --color-warning: var(--warning);
+  --color-critical: var(--critical);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-geist-mono), ui-monospace, Menlo, monospace;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
 }
