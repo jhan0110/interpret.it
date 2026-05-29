@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { AttemptRecorder } from "@/lib/audio";
@@ -25,7 +25,6 @@ import { Card } from "@/components/Card";
  */
 type Props = {
   sessionId: string;
-  wsBaseUrl: string;
 };
 
 type CognitiveBand = "low" | "moderate" | "high" | "overloaded" | "idle";
@@ -56,7 +55,7 @@ const STATE_LABELS: Record<ContractSessionState, string> = {
   complete: "Session complete",
 };
 
-export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
+export function SessionRunner({ sessionId }: Props) {
   const router = useRouter();
 
   const [state, setState] = useState<ContractSessionState>("idle");
@@ -98,8 +97,6 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const levelRafRef = useRef<number | null>(null);
 
-  const url = useMemo(() => `${wsBaseUrl}/ws/sessions/${sessionId}`, [wsBaseUrl, sessionId]);
-
   function clearDelayCountdown() {
     if (delayIntervalRef.current !== null) {
       clearInterval(delayIntervalRef.current);
@@ -123,7 +120,9 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
   }
 
   useEffect(() => {
-    const client = new WSClient(url);
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/sessions/${sessionId}`;
+    const client = new WSClient(wsUrl);
     wsRef.current = client;
 
     client.on("state.change", (p: WSStateChange["payload"]) => {
@@ -211,7 +210,7 @@ export function SessionRunner({ sessionId, wsBaseUrl }: Props) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, sessionId]);
+  }, [sessionId]);
 
   useEffect(() => {
     clearDelayCountdown();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { AttemptRecorder } from "@/lib/audio";
@@ -28,7 +28,6 @@ import { Card } from "@/components/Card";
 
 type Props = {
   sessionId: string;
-  wsBaseUrl: string;
   replaysBudget: number;
 };
 
@@ -71,7 +70,6 @@ const BACKOFF_CAP_MS = 30_000;
 
 export function MemorizationRunner({
   sessionId,
-  wsBaseUrl,
   replaysBudget,
 }: Props) {
   const router = useRouter();
@@ -127,11 +125,6 @@ export function MemorizationRunner({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const levelRafRef = useRef<number | null>(null);
-
-  const url = useMemo(
-    () => `${wsBaseUrl}/ws/sessions/${sessionId}`,
-    [wsBaseUrl, sessionId],
-  );
 
   function clearDelayCountdown() {
     if (delayIntervalRef.current !== null) {
@@ -302,9 +295,11 @@ export function MemorizationRunner({
 
   useEffect(() => {
     wsClosedRef.current = false;
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/sessions/${sessionId}`;
 
     const open = () => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
@@ -366,7 +361,7 @@ export function MemorizationRunner({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, sessionId]);
+  }, [sessionId]);
 
   useEffect(() => {
     clearDelayCountdown();

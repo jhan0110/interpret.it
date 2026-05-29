@@ -4,8 +4,6 @@ import { SessionRunner } from "../SessionRunner";
 import { MemorizationRunner } from "../MemorizationRunner";
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? "http://localhost:8000";
-const WS_BASE_URL =
-  process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
 
 async function fetchSession(
   sessionId: string,
@@ -31,10 +29,9 @@ export default async function SessionPage({
     return (
       <MemorizationRunner
         sessionId={sessionId}
-        wsBaseUrl={WS_BASE_URL}
         replaysBudget={session.replays_budget}
       />
     );
   }
-  return <SessionRunner sessionId={sessionId} wsBaseUrl={WS_BASE_URL} />;
+  return <SessionRunner sessionId={sessionId} />;
 }
