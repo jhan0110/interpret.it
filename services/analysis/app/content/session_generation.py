@@ -32,6 +32,7 @@ from app.embeddings import embed_texts
 from app.rpc.gateway_client import (
     publish_generation_event,
     push_segment_insert,
+    push_session_plan,
 )
 from app.tts.elevenlabs_tts import generate_segment_audio
 from app.content.durations import DURATION_BANDS
@@ -136,16 +137,4 @@ async def _push_planned_segments(
     session_id: str, segment_ids: list[str], scenario_summary: str
 ) -> None:
     """Tell the gateway which segments to walk for this session."""
-    import httpx
-    import os
-
-    gateway_url = os.getenv("GATEWAY_RPC_URL", "http://localhost:8000")
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(
-            f"{gateway_url}/internal/session_plan",
-            json={
-                "session_id": session_id,
-                "segment_ids": segment_ids,
-                "scenario_summary": scenario_summary,
-            },
-        )
+    await push_session_plan(session_id, segment_ids, scenario_summary)

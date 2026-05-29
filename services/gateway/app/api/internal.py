@@ -18,12 +18,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -52,6 +54,17 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 
 ANALYSIS_CHANNEL = "analysis_events"
 _REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+_http_bearer = HTTPBearer(auto_error=False)
+
+
+async def verify_internal_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_http_bearer),
+) -> None:
+    secret = os.environ.get("INTERNAL_RPC_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=500, detail="internal RPC secret not configured")
+    if credentials is None or not secrets.compare_digest(credentials.credentials, secret):
+        raise HTTPException(status_code=401, detail="invalid or missing internal RPC token")
 
 
 def _now_iso() -> str:
@@ -122,7 +135,7 @@ def _paraphrase_uuid(segment_id: UUID, text: str) -> UUID:
     return uuid5(NAMESPACE_URL, f"paraphrase:{segment_id}:{text.strip()}")
 
 
-@router.post("/segments", response_model=SegmentInsertResponse)
+@router.post("/segments", response_model=SegmentInsertResponse, dependencies=[Depends(verify_internal_token)])
 async def post_segment(body: SegmentInsertRequest) -> SegmentInsertResponse:
     """Insert a generated segment + its paraphrase embeddings.
 
@@ -179,7 +192,7 @@ async def post_segment(body: SegmentInsertRequest) -> SegmentInsertResponse:
     )
 
 
-@router.post("/session_plan", response_model=SessionPlanResponse)
+@router.post("/session_plan", response_model=SessionPlanResponse, dependencies=[Depends(verify_internal_token)])
 async def post_session_plan(body: SessionPlanRequest) -> SessionPlanResponse:
     """Record the pre-generated 10-pack against the session.
 
@@ -330,7 +343,7 @@ def _vocab_entry_uuid(domain: str, source_lang: str, term: str) -> UUID:
     return uuid5(NAMESPACE_URL, f"vocab_extracted:{domain}:{source_lang}:{term}")
 
 
-@router.post("/vocab_extraction")
+@router.post("/vocab_extraction", dependencies=[Depends(verify_internal_token)])
 async def vocab_extraction(body: VocabExtractionRequest) -> dict:
     """Upsert missed vocabulary terms into the learner's deck.
 
@@ -395,7 +408,7 @@ async def vocab_extraction(body: VocabExtractionRequest) -> dict:
     return {"accepted": True}
 
 
-@router.post("/prosody_result")
+@router.post("/prosody_result", dependencies=[Depends(verify_internal_token)])
 async def prosody_result(result: ProsodyResult) -> dict:
     log.info("[gw.internal.prosody_result.received] attempt=%s", result.attempt_id)
     sm = sessionmaker_factory()
@@ -421,7 +434,7 @@ async def prosody_result(result: ProsodyResult) -> dict:
     return {"accepted": True}
 
 
-@router.post("/semantic_result")
+@router.post("/semantic_result", dependencies=[Depends(verify_internal_token)])
 async def semantic_result(result: SemanticResult) -> dict:
     log.info("[gw.internal.semantic_result.received] attempt=%s", result.attempt_id)
     sm = sessionmaker_factory()

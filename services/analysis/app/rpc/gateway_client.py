@@ -23,6 +23,20 @@ _REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 _GATEWAY_RPC_URL = os.getenv("GATEWAY_RPC_URL", "http://localhost:8000")
 _RESULT_TTL_S = 300
 
+_INTERNAL_RPC_SECRET = os.getenv("INTERNAL_RPC_SECRET", "")
+if not _INTERNAL_RPC_SECRET:
+    log.warning(
+        "[rpc.gateway_client] INTERNAL_RPC_SECRET is unset — "
+        "calls to gateway /internal/* will be rejected in production"
+    )
+
+
+def _rpc_headers() -> dict[str, str]:
+    h = {"Content-Type": "application/json"}
+    if _INTERNAL_RPC_SECRET:
+        h["Authorization"] = f"Bearer {_INTERNAL_RPC_SECRET}"
+    return h
+
 
 async def push_prosody_result(result: ProsodyResult) -> None:
     """Deliver ProsodyResult to Gateway (HTTP), with Redis fallback."""
@@ -63,7 +77,7 @@ async def push_vocab_extraction(payload: dict) -> None:
             r = await client.post(
                 f"{_GATEWAY_RPC_URL}/internal/vocab_extraction",
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers=_rpc_headers(),
             )
             r.raise_for_status()
     except httpx.HTTPError:
@@ -79,10 +93,37 @@ async def push_segment_insert(payload: dict) -> dict:
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(
-            f"{_GATEWAY_RPC_URL}/internal/segments", json=payload
+            f"{_GATEWAY_RPC_URL}/internal/segments",
+            json=payload,
+            headers=_rpc_headers(),
         )
         r.raise_for_status()
         return r.json()
+
+
+async def push_session_plan(
+    session_id: str,
+    segment_ids: list[str],
+    scenario_summary: str | None = None,
+) -> None:
+    """Tell the gateway which segments to walk for this session.
+
+    Raises on non-2xx so the generation worker can fail loudly instead of
+    silently dropping the session plan.
+    """
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.post(
+            f"{_GATEWAY_RPC_URL}/internal/session_plan",
+            json={
+                "session_id": session_id,
+                "segment_ids": segment_ids,
+                "scenario_summary": scenario_summary,
+            },
+            headers=_rpc_headers(),
+        )
+        r.raise_for_status()
 
 
 GENERATION_CHANNEL = "generation_events"
@@ -112,7 +153,7 @@ async def _post(url: str, payload: str) -> None:
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(url, content=payload, headers={"Content-Type": "application/json"})
+            await client.post(url, content=payload, headers=_rpc_headers())
     except httpx.HTTPError:
         # Redis fallback already written; gateway can recover from there.
         pass
