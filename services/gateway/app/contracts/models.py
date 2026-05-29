@@ -203,6 +203,10 @@ class MasteryScore(_Strict):
     learner_id: UUID
     domain: str
     mastery: Unit
+    tier: int = Field(default=0, ge=0, le=5)
+    tier_name: str = "Initiate"
+    next_tier_name: str | None = "Apprentice"
+    progress: Unit = 0.0
     attempts_count: int = Field(ge=0)
     last_attempt_at: datetime
     updated_at: datetime

@@ -220,7 +220,21 @@ async def pick_segment_for_session(
         )
     ).scalar_one_or_none()
     mastery = float(mastery_row.mastery) if mastery_row is not None else DEFAULT_MASTERY
-    target = target_level_from_mastery(mastery)
+    tier = int(mastery_row.tier) if mastery_row is not None else 0
+    # Tier > 0 anchors the picker on the qualifying band for the NEXT tier
+    # (so a Journeyman gets Practitioner-band segments — the picker is
+    # always nudging the learner toward the threshold of their next rank).
+    # At tier 0 we fall back to the legacy mastery scalar.
+    if tier > 0:
+        from app.engine.mastery_tier import MAX_TIER, next_tier_band
+
+        if tier >= MAX_TIER:
+            band = next_tier_band(tier - 1)
+        else:
+            band = next_tier_band(tier)
+        target = (band[0] + band[1]) // 2
+    else:
+        target = target_level_from_mastery(mastery)
 
     recent = await _recent_attempts(
         db, session_row.learner_id, RECENT_ATTEMPT_WINDOW

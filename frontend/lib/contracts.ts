@@ -149,6 +149,10 @@ export interface MasteryScore {
   learner_id: string;
   domain: string;
   mastery: number;
+  tier: number;
+  tier_name: string;
+  next_tier_name: string | null;
+  progress: number;
   attempts_count: number;
   last_attempt_at: string;
   updated_at: string;

@@ -17,6 +17,10 @@ async function safeFetch<T>(url: string): Promise<T | null> {
 interface MasteryScore {
   domain: string;
   mastery: number;
+  tier: number;
+  tier_name: string;
+  next_tier_name: string | null;
+  progress: number;
   attempts_count: number;
   last_attempt_at: string;
 }
@@ -79,17 +83,30 @@ function MinutesTile({ seconds }: { seconds: number }) {
 }
 
 function MasteryRow({ score }: { score: MasteryScore }) {
-  const pct = Math.round(score.mastery * 100);
+  const pct = Math.round((score.progress ?? 0) * 100);
+  const atMaster = score.next_tier_name === null;
   return (
     <div className="flex flex-col gap-1 border-b border-accent pb-2 last:border-0 last:pb-0">
       <div className="flex items-center justify-between text-sm">
-        <span className="font-medium capitalize text-ink-soft">{score.domain}</span>
-        <span className="text-ink-faint">
-          {pct}% &middot; {score.attempts_count} attempts
+        <span className="font-medium uppercase tracking-wider text-ink-soft text-xs">
+          {score.domain}
+        </span>
+        <span className="font-semibold uppercase tracking-wider text-accent text-xs">
+          {score.tier_name}
         </span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-[1px] bg-paper-tint">
         <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex items-center justify-between text-[10px] text-ink-faint">
+        <span>{score.attempts_count} attempts</span>
+        {atMaster ? (
+          <span>Master tier reached</span>
+        ) : (
+          <span>
+            {pct}% to {score.next_tier_name}
+          </span>
+        )}
       </div>
     </div>
   );

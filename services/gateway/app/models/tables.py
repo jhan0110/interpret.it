@@ -171,6 +171,8 @@ class MasteryScoreRow(Base):
     )
     domain: Mapped[str] = mapped_column(String, primary_key=True)
     mastery: Mapped[float] = mapped_column(nullable=False, default=0.5)
+    tier: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    recent_scores: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     attempts_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_attempt_at: Mapped[datetime] = _ts()
     updated_at: Mapped[datetime] = _ts(default_now=True)

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contracts.models import MasteryScore
+from app.engine.mastery_tier import progress_to_next
 from app.models.tables import (
     AttemptRow,
     LearnerVocabDeckRow,
@@ -69,19 +70,27 @@ async def load_mastery_scores(
             select(MasteryScoreRow).where(MasteryScoreRow.learner_id == learner_id)
         )
     ).scalars().all()
-    return [
-        MasteryScore.model_validate(
-            {
-                "learner_id": r.learner_id,
-                "domain": r.domain,
-                "mastery": r.mastery,
-                "attempts_count": r.attempts_count,
-                "last_attempt_at": r.last_attempt_at,
-                "updated_at": r.updated_at,
-            }
+    result: list[MasteryScore] = []
+    for r in rows:
+        tier_val = int(r.tier or 0)
+        prog = progress_to_next(tier_val, r.recent_scores)
+        result.append(
+            MasteryScore.model_validate(
+                {
+                    "learner_id": r.learner_id,
+                    "domain": r.domain,
+                    "mastery": r.mastery,
+                    "tier": tier_val,
+                    "tier_name": prog.tier_name,
+                    "next_tier_name": prog.next_tier_name,
+                    "progress": prog.progress,
+                    "attempts_count": r.attempts_count,
+                    "last_attempt_at": r.last_attempt_at,
+                    "updated_at": r.updated_at,
+                }
+            )
         )
-        for r in rows
-    ]
+    return result
 
 
 async def sum_interpreted_seconds(db: AsyncSession, learner_id: UUID) -> int:

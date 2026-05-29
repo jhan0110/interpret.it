@@ -36,6 +36,7 @@ from app.engine.difficulty_ladder import (
     difficulty_delta,
     update_mastery,
 )
+from app.engine.mastery_tier import append_score, evaluate_promotion
 from app.models.tables import (
     AttemptRow,
     LearnerVocabDeckRow,
@@ -233,6 +234,11 @@ async def _close_if_ready(attempt_id: UUID) -> None:
             return
         domain = session_row.domain
 
+        # Mastery updates only count interpretation attempts. Memorization
+        # uses a different rubric (recall, not translation) and would
+        # contaminate the tier signal.
+        is_interpretation = getattr(session_row, "mode", "interpretation") == "interpretation"
+
         ms = (
             await db.execute(
                 select(MasteryScoreRow).where(
@@ -250,12 +256,28 @@ async def _close_if_ready(attempt_id: UUID) -> None:
                 last_attempt_at=datetime.now(UTC),
             )
             db.add(ms)
-        old = float(ms.mastery)
-        new = update_mastery(old, ms.attempts_count, score)
-        ms.mastery = new
-        ms.attempts_count += 1
-        ms.last_attempt_at = datetime.now(UTC)
-        _ = difficulty_delta(old, new)  # consumed when picking the next segment
+
+        if is_interpretation:
+            old = float(ms.mastery)
+            new = update_mastery(old, ms.attempts_count, score)
+            ms.mastery = new
+            ms.attempts_count += 1
+            ms.last_attempt_at = datetime.now(UTC)
+            _ = difficulty_delta(old, new)  # consumed when picking the next segment
+
+            # Tier promotion check on a rolling window of the last
+            # ROLLING_WINDOW_CAP at-domain scores keyed by the segment's
+            # internal difficulty level.
+            seg = (
+                await db.execute(
+                    select(SegmentRow).where(SegmentRow.id == row.segment_id)
+                )
+            ).scalar_one_or_none()
+            seg_level = int(seg.difficulty_level) if seg is not None else 1
+            ms.recent_scores = append_score(
+                ms.recent_scores, level=seg_level, score=score, ts=datetime.now(UTC)
+            )
+            ms.tier = evaluate_promotion(int(ms.tier or 0), ms.recent_scores)
 
         row.closed_at = datetime.now(UTC)
 
