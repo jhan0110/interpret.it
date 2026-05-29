@@ -1,0 +1,22 @@
+{$PUBLIC_DOMAIN} {
+	tls internal
+
+	handle /ws/* {
+		reverse_proxy gateway:8000
+	}
+
+	@gateway_routes path /sessions* /learners* /internal* /health
+	handle @gateway_routes {
+		basicauth {
+			{$BASIC_AUTH_USER} {$BASIC_AUTH_PASSWORD_HASH}
+		}
+		reverse_proxy gateway:8000
+	}
+
+	handle {
+		basicauth {
+			{$BASIC_AUTH_USER} {$BASIC_AUTH_PASSWORD_HASH}
+		}
+		reverse_proxy frontend:3000
+	}
+}

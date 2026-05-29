@@ -1,12 +1,11 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: interpretit
       POSTGRES_PASSWORD: interpretit
       POSTGRES_DB: interpretit
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,8 +16,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -27,13 +25,11 @@ services:
 
   minio:
     image: minio/minio:latest
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -45,6 +41,7 @@ services:
   gateway:
     build:
       context: ./services/gateway
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://interpretit:interpretit@postgres:5432/interpretit
       REDIS_URL: redis://redis:6379/0
@@ -56,8 +53,6 @@ services:
     volumes:
       - ./services/gateway/app:/app/app:ro
       - ./services/gateway/alembic:/app/alembic:ro
-    ports:
-      - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +65,7 @@ services:
     build:
       context: ./services/analysis
     image: phase5-analysis:latest
+    restart: unless-stopped
     environment:
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
@@ -92,8 +88,6 @@ services:
       GROQ_WHISPER_MODEL: ${GROQ_WHISPER_MODEL:-whisper-large-v3}
     volumes:
       - ./services/analysis/app:/app/app:ro
-    ports:
-      - "8001:8001"
     depends_on:
       - redis
       - minio
@@ -101,6 +95,7 @@ services:
 
   arq-semantic:
     image: phase5-analysis:latest
+    restart: unless-stopped
     command: ["arq", "app.worker.WorkerSettings"]
     environment:
       REDIS_URL: redis://redis:6379/0
@@ -132,6 +127,7 @@ services:
 
   arq-generation:
     image: phase5-analysis:latest
+    restart: unless-stopped
     command: ["arq", "app.worker.WorkerSettings"]
     environment:
       REDIS_URL: redis://redis:6379/0
@@ -164,14 +160,33 @@ services:
   frontend:
     build:
       context: ./frontend
+    restart: unless-stopped
     environment:
       NEXT_PUBLIC_WS_BASE_URL: ws://localhost:8000
       GATEWAY_URL: http://gateway:8000
-    ports:
-      - "3000:3000"
     depends_on:
       - gateway
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-interpretit.local}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-admin}
+      BASIC_AUTH_PASSWORD_HASH: ${BASIC_AUTH_PASSWORD_HASH}
+    depends_on:
+      - gateway
+      - frontend
 
 volumes:
   postgres_data:
   minio_data:
+  caddy_data:
+  caddy_config:
