@@ -1,5 +1,22 @@
 # Interpretation Training Platform
 
+## Required reading before any non-trivial implementation
+
+Read **`ANTI_BUG_PROTOCOL.md`** at the repo root before starting work
+that touches more than a single file. It is a local-only document
+(gitignored) capturing 30 rules drawn from real bugs paid for in this
+codebase — async engine binding, `FOR UPDATE` on outer joins,
+dimensional `*_rate` units, audio element lifecycle, cache key
+hygiene, LLM prompt calibration, smoke-test discipline, etc.
+
+The pre-merge checklist at the bottom of that file is non-negotiable
+for any merge of >10 files. If `ANTI_BUG_PROTOCOL.md` is missing
+locally, ask the operator for the current version before proceeding —
+it should not be regenerated from scratch.
+
+When you discover a new class of bug not covered there, append a new
+rule. Never delete an existing rule without a documented supersession.
+
 ## Project Summary
 Real-time interpretation training app for military/classified/research environments.
 Users hear audio segments, interpret them aloud after a calibrated delay, and receive
