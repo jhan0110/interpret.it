@@ -246,11 +246,15 @@ async def _close_if_ready(attempt_id: UUID) -> None:
 
     sm = sessionmaker_factory()
     async with sm() as db:
+        # `with_for_update(of=...)` restricts the row lock to the
+        # named relation. SQLAlchemy otherwise auto-joins relationships
+        # (e.g. learner, session) and Postgres rejects FOR UPDATE on
+        # the nullable side of those outer joins.
         row = (
             await db.execute(
                 select(AttemptRow)
                 .where(AttemptRow.id == attempt_id)
-                .with_for_update()
+                .with_for_update(of=AttemptRow)
             )
         ).scalar_one_or_none()
         # JSONB columns are typed as `dict | None`, but a buggy
@@ -282,7 +286,7 @@ async def _close_if_ready(attempt_id: UUID) -> None:
             await db.execute(
                 select(SessionRow)
                 .where(SessionRow.id == row.session_id)
-                .with_for_update()
+                .with_for_update(of=SessionRow)
             )
         ).scalar_one_or_none()
         if session_row is None:
@@ -303,7 +307,7 @@ async def _close_if_ready(attempt_id: UUID) -> None:
                     MasteryScoreRow.learner_id == row.learner_id,
                     MasteryScoreRow.domain == domain,
                 )
-                .with_for_update()
+                .with_for_update(of=MasteryScoreRow)
             )
         ).scalar_one_or_none()
         if ms is None:

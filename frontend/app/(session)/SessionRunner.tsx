@@ -160,6 +160,20 @@ export function SessionRunner({ sessionId }: Props) {
         setAudioDurationMs((prev) => {
           if (prev === 0) {
             console.log("[audio] fallback: metadata not loaded, proceeding as ended");
+            // Pause the element so the real `onEnded` doesn't fire
+            // afterwards. Without this, audioEnded would flip
+            // false→true (fallback) → false (metadata onLoadedMetadata) →
+            // true (real onEnded), and the WS layer sees a second
+            // recording.begin which the state machine refuses
+            // ("playback.finished not valid from state 'recording'").
+            const el = audioRef.current;
+            if (el && !el.paused) {
+              try {
+                el.pause();
+              } catch {
+                // ignore — pause is best-effort
+              }
+            }
             setAudioEnded(true);
           }
           return prev;
@@ -345,15 +359,25 @@ export function SessionRunner({ sessionId }: Props) {
 
   async function startRecording() {
     if (!currentSegmentId) return;
+    // Guard against a double-tap on the Record button (or any code path
+    // that calls startRecording twice). Two sends of `recording.begin`
+    // map to two `playback.finished` triggers; the second one hits the
+    // state machine while it's already in `recording` and the gateway
+    // surfaces "trigger 'playback.finished' not valid from state
+    // 'recording'".
+    if (recorderRef.current) return;
     const attemptId = uuidv4();
     setCurrentAttemptId(attemptId);
 
     const recorder = new AttemptRecorder();
+    // Plant the ref BEFORE the await so a fast re-click can't race the
+    // mic-permission round-trip.
+    recorderRef.current = recorder;
     try {
       await recorder.start();
-      recorderRef.current = recorder;
       wsRef.current?.sendRecordingBegin(sessionId, currentSegmentId, attemptId);
     } catch (e) {
+      recorderRef.current = null;
       setError((e as Error).message);
     }
   }
@@ -544,11 +568,13 @@ export function SessionRunner({ sessionId }: Props) {
             const duration = (audioRef.current?.duration ?? 0) * 1000;
             console.log("[audio] metadata loaded, duration=", duration);
             setAudioDurationMs(duration);
-            // If the 1.5s fallback already fired but metadata then
-            // arrived, un-stick `audioEnded` so the real `onEnded`
-            // gets to drive the transition. Without this, the UI
-            // jumps to "record" while audio is still playing.
-            setAudioEnded(false);
+            // Cancel the 1.5s fallback if it hasn't fired yet. If it
+            // ALREADY fired, we leave `audioEnded` as-is and rely on
+            // the pause() that fallback issued to suppress the real
+            // `onEnded`. (Earlier code unconditionally reset
+            // audioEnded=false here, which then let the real onEnded
+            // fire a second `recording.begin` and the state machine
+            // rejected it.)
             if (audioFallbackRef.current !== null) {
               clearTimeout(audioFallbackRef.current);
               audioFallbackRef.current = null;

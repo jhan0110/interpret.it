@@ -724,9 +724,9 @@ export function MemorizationRunner({
             const duration = (audioRef.current?.duration ?? 0) * 1000;
             console.log("[audio] metadata loaded, duration=", duration);
             setAudioDurationMs(duration);
-            // M17: un-stick `audioEnded` if metadata arrives after
-            // the 1.5s fallback. Same fix as SessionRunner.tsx.
-            setAudioEnded(false);
+            // Cancel the fallback only; do NOT reset audioEnded. See
+            // SessionRunner.tsx for the rationale (double-fire of
+            // recording.begin against state machine).
             if (audioFallbackRef.current !== null) {
               clearTimeout(audioFallbackRef.current);
               audioFallbackRef.current = null;

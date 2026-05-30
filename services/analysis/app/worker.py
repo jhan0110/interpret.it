@@ -176,10 +176,16 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
         log.info("[semantic.tts.begin] attempt=%s", req.attempt_id)
         t_tts = time.monotonic()
         try:
+            # Pass voice_id=None so generate_feedback_audio() picks the
+            # provider-aware default via `_feedback_default_voice()`.
+            # The old code unconditionally passed ELEVENLABS_FEEDBACK_VOICE,
+            # which breaks when TTS_PROVIDER=openai because OpenAI's TTS
+            # only accepts its named voices (alloy/echo/fable/...), not
+            # ElevenLabs UUIDs.
             feedback_audio_key = await asyncio.to_thread(
                 generate_feedback_audio,
                 "feedback placeholder",
-                os.getenv("ELEVENLABS_FEEDBACK_VOICE", "EXAVITQu4vr4xnSDxMaL"),
+                None,
             )
             tts_ms = int((time.monotonic() - t_tts) * 1000)
             log.info("[semantic.tts.done] attempt=%s took=%dms key=%s", req.attempt_id, tts_ms, feedback_audio_key)
