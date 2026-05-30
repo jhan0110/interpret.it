@@ -86,9 +86,20 @@ def voice_id_for_lang(lang: str) -> str:
     return _DEFAULT_EN_VOICE if lang == "en" else _DEFAULT_KO_VOICE
 
 
+def _model_cache_tag() -> str:
+    """A short stable slug identifying the current TTS configuration that
+    affects audio content. When this changes (e.g. model swap), MinIO keys
+    move to a fresh namespace and stale audio stops being served."""
+    if _provider() == "openai":
+        model = os.environ.get("OPENAI_TTS_MODEL", "openai/gpt-audio")
+        return "oa-" + model.split("/")[-1].replace("_", "-")
+    model = os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+    return "el-" + model.replace("_", "-")
+
+
 def _minio_key(text: str, voice_id: str, prefix: str = "tts") -> str:
     h = hashlib.sha256(f"{voice_id}:{text}".encode()).hexdigest()[:16]
-    return f"{prefix}/{h}.mp3"
+    return f"{prefix}/{_model_cache_tag()}/{h}.mp3"
 
 
 def _object_exists(bucket: str, key: str) -> bool:
