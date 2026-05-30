@@ -68,16 +68,45 @@ All payloads conform to shapes in `contracts.json` (`REST.*` keys).
 | POST   | `/sessions`                       | `REST.PostSessionRequest`   | `REST.PostSessionResponse` (=Session) |
 | GET    | `/sessions/{id}`                  | —                           | `REST.GetSessionResponse` (=Session) |
 | POST   | `/sessions/{id}/complete`         | —                           | `REST.CompleteSessionResponse`    |
+| GET    | `/sessions/{id}/ws_token`         | —                           | `{ token, expires_in_s }`         |
+| GET    | `/sessions/{id}/attempts/{aid}/audio_url` | —                   | `REST.GetAttemptAudioUrlResponse` |
 | GET    | `/learners/{id}`                  | —                           | `REST.GetLearnerResponse` (=Learner) |
 | GET    | `/learners/{id}/mastery`          | —                           | `REST.GetLearnerMasteryResponse`  |
+| GET    | `/learners/{id}/sessions?limit=N` | —                           | `[SessionSummary]`                |
 
 `/health` runs shallow checks against Postgres, Redis, and MinIO and
 reports per-dependency status. Returns 200 unless `status == "down"`.
 
+`/sessions/{id}/ws_token` mints a 5-minute HMAC-SHA256 token bound to
+the session_id. The token signs `"<session_id>|<exp>"` with
+`INTERNAL_RPC_SECRET` and returns `<exp>.<urlsafe_b64_sig>`. The WS
+endpoint verifies it via `app.ws_auth.verify_token` before
+`ws.accept()` — only when `WS_AUTH_REQUIRED=1`. Default off so the
+existing frontend (which doesn't yet fetch tokens) keeps working.
+
+`POST /sessions/{id}/complete` is now atomic: a conditional UPDATE
+`SET state='complete' WHERE id=:id AND state != 'complete'` so two
+concurrent completes don't both broadcast a state-change envelope.
+
 ## 3. WebSocket Protocol
 
-Endpoint: `GET /ws/sessions/{session_id}` (Gateway). Auth via signed
-session token query param (out of scope for Phase 1).
+Endpoint: `GET /ws/sessions/{session_id}?token=<...>` (Gateway).
+
+**Auth** is gated by the `WS_AUTH_REQUIRED` env var:
+
+- `WS_AUTH_REQUIRED=0` (default) — no token check. Existing clients
+  keep working. This is the current production state because the
+  frontend doesn't yet fetch a token.
+- `WS_AUTH_REQUIRED=1` — the handler validates `?token=<...>` via
+  `app.ws_auth.verify_token(session_id, token)` before
+  `ws.accept()`; rejects close 1008 on failure. Tokens are minted
+  by `GET /sessions/{id}/ws_token` and expire after 5 minutes.
+
+Flipping `WS_AUTH_REQUIRED` to `1` requires the frontend to:
+1. Call `GET /sessions/{id}/ws_token` before opening the socket.
+2. Append `?token=<value>` to the WS URL.
+3. Refresh the token on reconnect (the 5-minute window is per
+   connection attempt, not per session lifetime).
 
 **Frame discipline:**
 - All control + result traffic is JSON envelopes:
@@ -237,9 +266,52 @@ the current state to the client.
 > machine semantics are unchanged: `_close_if_ready` still waits for both
 > results before closing the attempt.
 
-## 6. Difficulty Ladder
+## 6. Persistence + concurrency
 
-### 6.1 Mastery update formula
+### 6.0 Async engine lifecycle
+
+`services/gateway/app/db.py` exposes `engine()` and
+`sessionmaker_factory()` as sync callables, but internally caches
+them per asyncio event loop (`_loop_key() = id(asyncio.get_running_loop())`).
+The first call from a given loop builds the engine + sessionmaker;
+subsequent calls return the cache. Tests using a per-test loop and
+arq workers running their own loop both work without "Future
+attached to a different loop" errors. Use `db.dispose_all()` from a
+FastAPI lifespan shutdown handler for clean teardown.
+
+### 6.1 Mastery RMW is row-locked
+
+`POST /internal/{prosody,semantic}_result` both call
+`_close_if_ready(attempt_id)`. That function acquires
+`SELECT ... FOR UPDATE` on `attempts`, `sessions`, and
+`mastery_scores` before reading them, so concurrent prosody+semantic
+posts can't interleave a read-modify-write on the mastery row. The
+state transition `analyzing → feedback` is a conditional UPDATE
+(`WHERE state = 'analyzing'`), so a concurrent
+`POST /sessions/{id}/complete` can't be resurrected.
+
+### 6.2 `segment_count` advances on attempt, not on pick
+
+The segment picker (`engine/segment_picker.py`) used to bump
+`segments.segment_count` at pick time. A WS failure between the
+commit and the `segment.play` frame could then silently consume a
+plan slot. The bump now lives in `session_manager.persist_attempt`,
+gated on `replayed=False`, so a learner who never produces audio
+doesn't burn a session segment.
+
+### 6.3 Picker fall-through guard
+
+`segment_picker.pick_segment_for_session` refuses to fall through to
+the ladder picker when a session has `generation_params` but
+`generation_state != "ready"`. The WS handler distinguishes that
+case in the user-facing error message ("session is still being
+prepared — wait a few seconds and try again") rather than the
+generic "no candidate segment available" — that wording was the
+symptom that surfaced this bug in the first place.
+
+## 7. Difficulty Ladder
+
+### 7.1 Mastery update formula
 
 For an attempt that closes with prosody and semantic results:
 
@@ -269,7 +341,7 @@ results land. If only one result arrives within the per-attempt timeout
 (default 20s — see ADR-001 in this doc's history), `triggered_by` reflects which path closed and the missing
 score defaults to `old_mastery` (neutral contribution).
 
-### 6.2 Next-segment selection
+### 7.2 Next-segment selection
 
 `difficulty_level` is bounded `[1, 10]`. Target level for the next
 segment:
