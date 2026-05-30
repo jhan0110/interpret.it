@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select, update
 
 from pydantic import BaseModel
 
@@ -27,6 +27,7 @@ from app.queue import enqueue_generation
 from app.quota import QuotaExceeded, consume_quota
 from app.session_manager import SessionNotFound, create_session
 from app.storage import signed_get_url
+from app.ws_auth import mint_token
 
 router = APIRouter()
 
@@ -212,9 +213,16 @@ async def complete_session(session_id: UUID) -> CompleteSessionResponse:
         ]
         mean = sum(scores) / len(scores) if scores else 0.0
 
+        # Atomic complete: only one concurrent request actually flips
+        # the state. The conditional UPDATE makes the read-modify-write
+        # race-free without holding a row lock.
         if row.state != "complete":
-            row.state = "complete"
-            row.completed_at = func.now()
+            now = datetime.now(UTC)
+            await db.execute(
+                update(SessionRow)
+                .where(SessionRow.id == session_id, SessionRow.state != "complete")
+                .values(state="complete", completed_at=now)
+            )
             await db.commit()
             await db.refresh(row)
 
@@ -257,31 +265,61 @@ class SessionSummary(BaseModel):
 async def list_learner_sessions(
     learner_id: UUID, limit: int = 5
 ) -> list[SessionSummary]:
-    """List recent sessions for a learner with aggregate attempt info."""
+    """List recent sessions for a learner with aggregate attempt info.
+
+    Two queries total (was N+1): one for the sessions, one to pull
+    every attempt for those sessions, then aggregate in Python.
+    Computing the mean in SQL is doable but `overall_score` lives
+    inside `attempts.semantic_result` JSONB — pulling rows once and
+    folding in Python is more legible and still O(n).
+    """
     sm = sessionmaker_factory()
     async with sm() as db:
-        sessions = (
-            await db.execute(
-                select(SessionRow)
-                .where(SessionRow.learner_id == learner_id)
-                .order_by(SessionRow.started_at.desc())
-                .limit(limit)
+        sessions = list(
+            (
+                await db.execute(
+                    select(SessionRow)
+                    .where(SessionRow.learner_id == learner_id)
+                    .order_by(SessionRow.started_at.desc())
+                    .limit(limit)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
+        if not sessions:
+            return []
+
+        session_ids = [s.id for s in sessions]
+        attempts = list(
+            (
+                await db.execute(
+                    select(AttemptRow).where(AttemptRow.session_id.in_(session_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        # Index attempts by session_id for O(1) lookup during the fold.
+        by_session: dict[UUID, list[AttemptRow]] = {sid: [] for sid in session_ids}
+        for a in attempts:
+            by_session.setdefault(a.session_id, []).append(a)
 
         out: list[SessionSummary] = []
         for s in sessions:
-            attempts = (
-                await db.execute(
-                    select(AttemptRow).where(AttemptRow.session_id == s.id)
-                )
-            ).scalars().all()
+            atts = by_session.get(s.id, [])
+            # `bool` is a subclass of `int` — exclude it explicitly so a
+            # legacy `{"overall_score": True}` (which would be 1.0) can't
+            # masquerade as a real score.
             scores = [
                 (a.semantic_result or {}).get("overall_score")
-                for a in attempts
+                for a in atts
                 if a.semantic_result is not None
             ]
-            scores = [x for x in scores if isinstance(x, (int, float))]
+            scores = [
+                x for x in scores if isinstance(x, (int, float)) and not isinstance(x, bool)
+            ]
             mean = sum(scores) / len(scores) if scores else None
             out.append(
                 SessionSummary(
@@ -290,11 +328,41 @@ async def list_learner_sessions(
                     started_at=s.started_at,
                     completed_at=s.completed_at,
                     state=s.state,
-                    attempts_count=len(attempts),
+                    attempts_count=len(atts),
                     mean_score=mean,
                 )
             )
     return out
+
+
+class WSTokenResponse(BaseModel):
+    token: str
+    expires_in_s: int
+
+
+@router.get("/sessions/{session_id}/ws_token", response_model=WSTokenResponse)
+async def get_ws_token(session_id: UUID) -> WSTokenResponse:
+    """Mint a short-lived WS-auth token for the given session.
+
+    The frontend hits this just before opening the WebSocket and
+    appends `?token=<...>` to the URL. The token is bound to the
+    session_id and expires after 5 minutes; new connections need a
+    fresh mint.
+
+    The endpoint sits behind the same basicauth as the other REST
+    surfaces (see infra/Caddyfile). Anyone with the basicauth creds
+    can mint tokens for any session — that matches the current threat
+    model where basicauth gates *everything*.
+    """
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        exists = (
+            await db.execute(select(SessionRow.id).where(SessionRow.id == session_id))
+        ).scalar_one_or_none()
+        if exists is None:
+            raise HTTPException(status_code=404, detail="session not found")
+    token, ttl = mint_token(session_id)
+    return WSTokenResponse(token=token, expires_in_s=ttl)
 
 
 @router.get("/learners/{learner_id}/mastery", response_model=GetLearnerMasteryResponse)

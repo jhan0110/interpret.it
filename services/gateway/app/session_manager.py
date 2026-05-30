@@ -165,5 +165,12 @@ async def persist_attempt(
             replayed=replayed,
         )
         db.add(attempt)
+        # `segment_count` represents how many distinct segments the
+        # learner has engaged with — bump only on first-attempt audio
+        # submissions, never on replays. The picker no longer
+        # increments at pick-time, so this is the canonical signal
+        # used by `/sessions/{id}` and the "Segment X of N" header.
+        if not replayed:
+            row.segment_count = (row.segment_count or 0) + 1
         await db.commit()
     return await snapshot(session_id)

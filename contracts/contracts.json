@@ -56,8 +56,9 @@
   },
 
   // Gateway → Analysis (arq job payload, via Redis).
-  // The SAME payload is enqueued to two distinct arq queues
-  // (`prosody`, `semantic`) so both pipelines see identical inputs.
+  // Enqueued onto the single `semantic` queue. Prosody is derived
+  // in-memory from Groq Whisper word timestamps before the LLM eval
+  // runs and pushed to the gateway via the same RPC channel.
   "AnalysisRequest": {
     "attempt_id":       "uuid",
     "segment_id":       "uuid",
@@ -75,7 +76,9 @@
     "mode":             "interpretation | memorization"  // routes worker to evaluate() vs evaluate_memorization()
   },
 
-  // Analysis → Gateway. Fast path. Target latency ≤2s.
+  // Analysis → Gateway. Derived in-memory from word timestamps
+  // returned by Groq Whisper before LLM eval runs (~10 ms after ASR
+  // returns; ASR itself dominates wall-clock).
   "ProsodyResult": {
     "attempt_id":              "uuid",
     "pause_count":             "integer",
@@ -88,7 +91,8 @@
     "latency_ms":              "integer"           // end-to-end inside analysis service
   },
 
-  // Analysis → Gateway. Full path. Target latency ≤12s.
+  // Analysis → Gateway. Single semantic pipeline. Target end-to-end
+  // latency 5–10s including ASR, prosody derivation, and LLM eval.
   // `mode` discriminates the two evaluator paths:
   //   - "interpretation" → `errors` populated (today's behavior); `key_points` null
   //   - "memorization"   → `key_points` populated (recall breakdown); `errors` typically []
@@ -335,13 +339,13 @@
     }
   },
 
-  // Fast path result.
+  // Prosody result (derived from word timestamps; pushed before LLM eval).
   "WSMessage.ProsodyResult": {
     "type":    "prosody.result",
     "payload": "ProsodyResult"
   },
 
-  // Full path result.
+  // Semantic-pipeline result.
   "WSMessage.SemanticResult": {
     "type":    "semantic.result",
     "payload": "SemanticResult"

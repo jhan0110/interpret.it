@@ -27,6 +27,7 @@ TIER_NAMES: tuple[str, ...] = (
 )
 
 MAX_TIER = len(TIER_NAMES) - 1  # 5
+MAX_LEVEL = 10  # internal difficulty ladder upper bound
 
 # Difficulty band per tier index (inclusive). tier 0 (Initiate) has no
 # qualifying band — the picker uses the legacy mastery scalar there.
@@ -52,12 +53,9 @@ class ScoreEntry(TypedDict):
 
 def tier_for_level(level: int) -> int:
     """Return the tier index whose band contains `level`. 1-2 -> 1, 3-4 -> 2,
-    ..., 9-10 -> 5. Out-of-range inputs are clamped."""
-    if level <= 0:
-        return 1
-    if level >= 9:
-        return 5
-    return (level + 1) // 2
+    ..., 9-10 -> 5. Out-of-range inputs are clamped to [1, MAX_TIER]."""
+    clamped = max(1, min(MAX_LEVEL, level))
+    return (clamped + 1) // 2
 
 
 def next_tier_band(current_tier: int) -> tuple[int, int]:

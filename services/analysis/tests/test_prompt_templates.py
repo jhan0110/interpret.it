@@ -61,7 +61,10 @@ def test_generate_segments_template_renders(tmp_path: Path) -> None:
     assert call.tool["name"] == "emit_segments"
     assert "10" in call.user  # n rendered into the user message
     assert "logistics" in call.system
-    assert call.model.startswith("claude-")
+    # Model identifier is OpenRouter-qualified now (e.g.
+    # "anthropic/claude-sonnet-4-6"). Assert the family token rather
+    # than a strict prefix.
+    assert "claude" in call.model.lower()
 
 
 def test_generate_segments_template_missing_var_strict() -> None:

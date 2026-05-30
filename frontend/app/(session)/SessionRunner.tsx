@@ -83,12 +83,20 @@ export function SessionRunner({ sessionId }: Props) {
   const [audioEnded, setAudioEnded] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track the post-`generation.complete` summary timers so unmount
+  // doesn't fire setState on a torn-down component.
+  const summaryHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const summaryFadeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showSummary, setShowSummary] = useState(false);
   const [summaryVisible, setSummaryVisible] = useState(false);
 
   const [recordingLevel, setRecordingLevel] = useState(0);
   const meterStreamRef = useRef<MediaStream | null>(null);
+  // True when the meter opened its own getUserMedia stream (legacy
+  // fallback path); false when we reused the recorder's stream and
+  // therefore must NOT stop its tracks on teardown.
+  const meterStreamOwnedRef = useRef<boolean>(false);
 
   const wsRef = useRef<WSClient | null>(null);
   const recorderRef = useRef<AttemptRecorder | null>(null);
@@ -109,8 +117,14 @@ export function SessionRunner({ sessionId }: Props) {
       cancelAnimationFrame(levelRafRef.current);
       levelRafRef.current = null;
     }
-    meterStreamRef.current?.getTracks().forEach((t) => t.stop());
+    // Only stop tracks if we opened the stream ourselves. If we
+    // reused the recorder's stream (H15), the recorder owns the
+    // lifecycle and stopping here would also kill the recording.
+    if (meterStreamOwnedRef.current) {
+      meterStreamRef.current?.getTracks().forEach((t) => t.stop());
+    }
     meterStreamRef.current = null;
+    meterStreamOwnedRef.current = false;
     if (audioContextRef.current) {
       audioContextRef.current.close().catch(() => undefined);
       audioContextRef.current = null;
@@ -186,9 +200,15 @@ export function SessionRunner({ sessionId }: Props) {
         if (p.scenario_summary) {
           setShowSummary(true);
           setSummaryVisible(true);
-          setTimeout(() => {
+          if (summaryHideRef.current !== null) clearTimeout(summaryHideRef.current);
+          if (summaryFadeRef.current !== null) clearTimeout(summaryFadeRef.current);
+          summaryHideRef.current = setTimeout(() => {
             setSummaryVisible(false);
-            setTimeout(() => setShowSummary(false), 500);
+            summaryFadeRef.current = setTimeout(() => {
+              setShowSummary(false);
+              summaryFadeRef.current = null;
+            }, 500);
+            summaryHideRef.current = null;
           }, 3000);
         }
       },
@@ -207,6 +227,14 @@ export function SessionRunner({ sessionId }: Props) {
       if (audioFallbackRef.current !== null) {
         clearTimeout(audioFallbackRef.current);
         audioFallbackRef.current = null;
+      }
+      if (summaryHideRef.current !== null) {
+        clearTimeout(summaryHideRef.current);
+        summaryHideRef.current = null;
+      }
+      if (summaryFadeRef.current !== null) {
+        clearTimeout(summaryFadeRef.current);
+        summaryFadeRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -243,26 +271,42 @@ export function SessionRunner({ sessionId }: Props) {
       if (cancelled) return;
 
       if (typeof window === "undefined") return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const AudioCtx: typeof AudioContext =
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).AudioContext ?? (window as any).webkitAudioContext;
+      // Safari still exposes the constructor as `webkitAudioContext`.
+      // Type the window narrowly so we never need an `any` cast.
+      type AudioCtxCtor = new () => AudioContext;
+      const w = window as Window & {
+        AudioContext?: AudioCtxCtor;
+        webkitAudioContext?: AudioCtxCtor;
+      };
+      const AudioCtx = w.AudioContext ?? w.webkitAudioContext;
       if (!AudioCtx) return;
 
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-        });
-      } catch {
-        return;
+      // H15: prefer the recorder's already-open MediaStream so we
+      // don't open the mic twice (Safari and some Linux/Pulse stacks
+      // throw on a second `getUserMedia` for the same device).
+      let stream: MediaStream | null = recorderRef.current?.stream ?? null;
+      let ownedStream = false;
+      if (stream === null) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              channelCount: 1,
+            },
+          });
+          ownedStream = true;
+        } catch {
+          return;
+        }
       }
       if (cancelled) {
-        stream.getTracks().forEach((t) => t.stop());
+        if (ownedStream) stream.getTracks().forEach((t) => t.stop());
         return;
       }
 
       meterStreamRef.current = stream;
+      meterStreamOwnedRef.current = ownedStream;
       const ctx = new AudioCtx();
       audioContextRef.current = ctx;
       const analyser = ctx.createAnalyser();
@@ -500,6 +544,11 @@ export function SessionRunner({ sessionId }: Props) {
             const duration = (audioRef.current?.duration ?? 0) * 1000;
             console.log("[audio] metadata loaded, duration=", duration);
             setAudioDurationMs(duration);
+            // If the 1.5s fallback already fired but metadata then
+            // arrived, un-stick `audioEnded` so the real `onEnded`
+            // gets to drive the transition. Without this, the UI
+            // jumps to "record" while audio is still playing.
+            setAudioEnded(false);
             if (audioFallbackRef.current !== null) {
               clearTimeout(audioFallbackRef.current);
               audioFallbackRef.current = null;

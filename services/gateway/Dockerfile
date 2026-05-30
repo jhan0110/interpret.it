@@ -6,13 +6,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Source MUST be present before `pip install .` so setuptools.find can
+# locate the `app` package. Without this, only deps land in site-packages
+# and the install is a no-op for project code.
 COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install .
-
 COPY app ./app
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 COPY scripts ./scripts
+RUN pip install --upgrade pip && pip install .
 
 EXPOSE 8000
 

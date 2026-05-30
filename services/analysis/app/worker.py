@@ -1,13 +1,13 @@
-"""Arq worker — runs `prosody` and `semantic` jobs from gateway.
+"""Arq worker — runs `semantic` and `generation` jobs from gateway.
 
-Two queues share this WorkerSettings (start two `arq` processes with
-`--queue prosody` and `--queue semantic` for CPU isolation). Both job
-functions consume the same `AnalysisRequest` payload.
+Two queues share this WorkerSettings. `semantic` runs `run_semantic`
+(ASR → prosody-derive → reference → TTS → evaluate → optional vocab
+extraction). `generation` runs `run_generation` (Claude segments →
+parallel TTS+embed → segment inserts → session plan).
 
-Per-attempt timeout is 20s (ARCHITECTURE.md ADR — locked in commit
-0586fb6). Prosody targets ≤2s; semantic targets ≤12s. Hitting the 20s
-cap is treated as failure; gateway will treat the missing result as a
-neutral contribution to mastery.
+Per-attempt timeout is `_PER_ATTEMPT_TIMEOUT_S` (30s today). Hitting
+the cap is treated as failure; gateway treats the missing result as
+a neutral contribution to mastery.
 """
 
 from __future__ import annotations
@@ -305,7 +305,7 @@ class WorkerSettings:
     # Generation jobs include Claude + n×TTS + first-call multilingual-e5
     # cold-start (~60s on its own). Phase B saw n=3 take 83s cold / 16s warm,
     # so n=10 needs ~120s warm budget on top of the cold start. 300s gives
-    # comfortable headroom; the per-attempt prosody/semantic 20s cap is
-    # enforced inside those handlers via asyncio.wait_for.
+    # comfortable headroom; the per-attempt semantic 30s cap is enforced
+    # inside the semantic handler via asyncio.wait_for.
     job_timeout = 300
     keep_result = 60

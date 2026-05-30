@@ -7,7 +7,7 @@ UI testing across different scenario types.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from ..contracts.models import FollowupExercise, SemanticResult, SemanticResultError
@@ -164,6 +164,6 @@ def get_mock_semantic_result(attempt_id: UUID, segment_id: UUID | str) -> Semant
         feedback_text=fx["feedback_text"],
         feedback_audio_path=_MOCK_AUDIO_PATH,
         followup_exercise=followup,
-        computed_at=datetime.now(timezone.utc),
+        computed_at=datetime.now(UTC),
         latency_ms=42,
     )

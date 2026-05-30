@@ -26,9 +26,18 @@ async def compute_streak(db: AsyncSession, learner_id: UUID) -> int:
     Activity = at least one AttemptRow.recorded_at on that UTC date OR
     at least one LearnerVocabDeckRow.last_reviewed_at on that UTC date.
     """
+    # `func.date(<timestamptz>)` follows the session timezone. We
+    # explicitly convert to UTC first so the streak bucket lines up
+    # with the `datetime.now(UTC).date()` cursor below — otherwise
+    # a Postgres `timezone` other than UTC silently shifts the
+    # date boundary and streaks break around midnight.
+    attempt_date_expr = func.date(func.timezone("UTC", AttemptRow.recorded_at))
+    vocab_date_expr = func.date(
+        func.timezone("UTC", LearnerVocabDeckRow.last_reviewed_at)
+    )
     attempt_dates = (
         await db.execute(
-            select(func.date(AttemptRow.recorded_at).distinct()).where(
+            select(attempt_date_expr.distinct()).where(
                 AttemptRow.learner_id == learner_id,
                 AttemptRow.recorded_at.is_not(None),
             )
@@ -36,7 +45,7 @@ async def compute_streak(db: AsyncSession, learner_id: UUID) -> int:
     ).scalars().all()
     vocab_dates = (
         await db.execute(
-            select(func.date(LearnerVocabDeckRow.last_reviewed_at).distinct()).where(
+            select(vocab_date_expr.distinct()).where(
                 LearnerVocabDeckRow.learner_id == learner_id,
                 LearnerVocabDeckRow.last_reviewed_at.is_not(None),
             )

@@ -1,8 +1,18 @@
 #!/usr/bin/env tsx
 /**
  * Reads contracts/contracts.json (jsonc) and emits frontend/lib/contracts.ts.
- * Run: npm run gen-contracts
+ *
+ * The generator is hand-maintained alongside the JSON: when a contract
+ * changes, edit BOTH `contracts/contracts.json` and the template in this
+ * file in the same commit. Run `npm run gen-contracts` to regenerate.
+ *
  * DO NOT manually edit frontend/lib/contracts.ts — it is auto-generated.
+ *
+ * The script also performs a sanity check: every top-level shape in
+ * `contracts.json` (excluding `_meta`) must appear by name in the
+ * emitted body. If a JSON shape has no matching `export interface` /
+ * `export type` block here, the script exits non-zero so the drift is
+ * caught at CI time.
  */
 
 import * as fs from "fs";
@@ -20,6 +30,7 @@ const raw = fs.readFileSync(contractsPath, "utf-8");
 const stripped = stripJsoncComments(raw);
 const schema = JSON.parse(stripped);
 
+// Common string-literal unions reused throughout the body.
 const SESSION_STATES =
   '"idle" | "listening" | "recording" | "analyzing" | "feedback" | "next_segment" | "complete"';
 const REGISTER = '"formal-military" | "formal-diplomatic" | "informal"';
@@ -44,12 +55,22 @@ const body = `
 export interface AudioSubmission {
   segment_id: string;
   attempt_id: string;
-  audio_format: "opus/webm";
+  audio_format: string;
   /** delivered in the following binary frame */
   audio_blob?: never;
   byte_length: number;
   duration_ms: number;
   recorded_at: string;
+}
+
+export type SessionMode = "interpretation" | "memorization";
+
+export type KeyPointImportance = "primary" | "secondary";
+
+export interface KeyPoint {
+  text: string;
+  recalled: boolean;
+  importance: KeyPointImportance;
 }
 
 export interface AnalysisRequest {
@@ -65,6 +86,8 @@ export interface AnalysisRequest {
   domain: string;
   difficulty_level: number;
   enqueued_at: string;
+  asr_prompt?: string | null;
+  mode?: SessionMode;
 }
 
 export interface ProsodyResult {
@@ -95,10 +118,13 @@ export interface FollowupExercise {
 
 export interface SemanticResult {
   attempt_id: string;
+  mode: SessionMode;
+  source_text: string;
   transcript: string;
   reference_translation: string;
   acceptable_paraphrases: string[];
   errors: SemanticError[];
+  key_points: KeyPoint[] | null;
   overall_score: number;
   feedback_text: string;
   feedback_audio_path: string;
@@ -130,6 +156,7 @@ export type SessionState = ${SESSION_STATES};
 export interface Session {
   id: string;
   learner_id: string;
+  mode: SessionMode;
   state: SessionState;
   domain: string;
   target_lang: ${LANG};
@@ -137,6 +164,7 @@ export interface Session {
   started_at: string;
   completed_at: string | null;
   segment_count: number;
+  replays_budget: number;
   current_segment_id: string | null;
 }
 
@@ -162,6 +190,7 @@ export interface Attempt {
   recorded_at: string;
   prosody_result: ProsodyResult | null;
   semantic_result: SemanticResult | null;
+  replayed: boolean;
   closed_at: string | null;
 }
 
@@ -169,6 +198,10 @@ export interface MasteryScore {
   learner_id: string;
   domain: string;
   mastery: number;
+  tier: number;
+  tier_name: string;
+  next_tier_name: string | null;
+  progress: number;
   attempts_count: number;
   last_attempt_at: string;
   updated_at: string;
@@ -176,11 +209,21 @@ export interface MasteryScore {
 
 // ---- REST shapes ----
 
+export interface GenerationParams {
+  topics: string[];
+  user_level: 1 | 2 | 3 | 4 | 5;
+  duration: "short" | "medium" | "long";
+  current_context?: string | null;
+  n?: number;
+}
+
 export interface PostSessionRequest {
   learner_id: string;
   domain: string;
   source_lang: ${LANG};
   target_lang: ${LANG};
+  mode?: SessionMode;
+  generation?: GenerationParams | null;
 }
 
 export type PostSessionResponse = Session;
@@ -191,6 +234,11 @@ export interface CompleteSessionResponse {
   attempts_count: number;
   mean_score: number;
   mastery_changes: MasteryUpdate[];
+}
+
+export interface GetAttemptAudioUrlResponse {
+  audio_url: string;
+  expires_in_s: number;
 }
 
 export type GetLearnerResponse = Learner;
@@ -306,6 +354,56 @@ export interface WSStateChange {
   };
 }
 
+export interface WSGenerationProgress {
+  type: "generation.progress";
+  ts: string;
+  payload: {
+    session_id: string;
+    ready: number;
+    target: number;
+    state: "pending" | "ready" | "failed";
+  };
+}
+
+export interface WSGenerationComplete {
+  type: "generation.complete";
+  ts: string;
+  payload: {
+    session_id: string;
+    count: number;
+    scenario_summary: string | null;
+  };
+}
+
+export type ReplayDeniedReason =
+  | "budget_exhausted"
+  | "already_replayed"
+  | "wrong_mode"
+  | "invalid_state";
+
+export interface WSReplayRequest {
+  type: "replay.request";
+  ts: string;
+  payload: { session_id: string; attempt_id: string };
+}
+
+export interface WSReplayGranted {
+  type: "replay.granted";
+  ts: string;
+  payload: { session_id: string; attempt_id: string; replays_remaining: number };
+}
+
+export interface WSReplayDenied {
+  type: "replay.denied";
+  ts: string;
+  payload: {
+    session_id: string;
+    attempt_id: string;
+    reason: ReplayDeniedReason;
+    replays_remaining: number;
+  };
+}
+
 export interface WSError {
   type: "error";
   ts: string;
@@ -325,6 +423,10 @@ export type ServerMessage =
   | WSMasteryUpdate
   | WSSessionCompleteAck
   | WSStateChange
+  | WSGenerationProgress
+  | WSGenerationComplete
+  | WSReplayGranted
+  | WSReplayDenied
   | WSError;
 
 export type ClientMessage =
@@ -332,8 +434,55 @@ export type ClientMessage =
   | WSSegmentRequest
   | WSRecordingBegin
   | WSAudioSubmitHeader
+  | WSReplayRequest
   | WSSessionComplete;
 `;
 
+// Sanity check: every JSON top-level shape (excluding the `_meta` block,
+// the namespace placeholder `WSMessage.*`, and internal RPC shapes that
+// are server-only) must have a matching TypeScript export in the body.
+// New shapes added to contracts.json without a corresponding entry here
+// would silently drift.
+const SERVER_ONLY_SHAPES = new Set([
+  "VocabExtractionRequest",
+  "VocabExtractionResult",
+]);
+
+// Map a JSON shape key (which may be dot-namespaced like "REST.HealthResponse"
+// or "WSMessage.SegmentPlay") to the conventional TypeScript export name.
+function expectedTsName(jsonKey: string): string {
+  if (jsonKey.startsWith("REST.")) return jsonKey.slice("REST.".length);
+  if (jsonKey.startsWith("WSMessage.")) return "WS" + jsonKey.slice("WSMessage.".length);
+  return jsonKey;
+}
+
+const jsonShapes = Object.keys(schema).filter(
+  (k) =>
+    !k.startsWith("_") &&
+    !SERVER_ONLY_SHAPES.has(k) &&
+    !k.endsWith(".*") // namespace placeholders
+);
+const missing: string[] = [];
+for (const jsonKey of jsonShapes) {
+  const name = expectedTsName(jsonKey);
+  // Match `export interface Name<...>`, `export interface Name {`, or
+  // `export type Name = ...`. Use a regex to be flexible about generics.
+  const present = new RegExp(
+    `export (interface|type) ${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}[\\s<={]`
+  ).test(body);
+  if (!present) missing.push(`${jsonKey} (expected ${name})`);
+}
+if (missing.length > 0) {
+  console.error(
+    "gen-contracts: contracts.json declares shapes not present in the TS template:"
+  );
+  for (const m of missing) console.error(`  - ${m}`);
+  console.error(
+    "Add matching exports to the body in scripts/gen-contracts.ts, then re-run."
+  );
+  process.exit(1);
+}
+
 fs.writeFileSync(outputPath, header + body, "utf-8");
 console.log(`Generated ${outputPath}`);
+console.log(`Covered ${jsonShapes.length} contracts.json shapes.`);

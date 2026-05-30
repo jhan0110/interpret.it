@@ -3,9 +3,9 @@ services:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: interpretit
-      POSTGRES_PASSWORD: interpretit
-      POSTGRES_DB: interpretit
+      POSTGRES_USER: ${POSTGRES_USER:-interpretit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-interpretit}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,8 +28,8 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}
     volumes:
       - minio_data:/data
     healthcheck:
@@ -49,7 +49,7 @@ services:
       retries: 3
       start_period: 30s
     environment:
-      DATABASE_URL: postgresql+asyncpg://interpretit:interpretit@postgres:5432/interpretit
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-interpretit}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-interpretit}
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
       # In production this must be the public origin Caddy serves on
@@ -58,10 +58,11 @@ services:
       # browser fetches its own machine and audio silently 404s.
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000}
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: interpretit
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-interpretit}
       INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
+      WS_AUTH_REQUIRED: ${WS_AUTH_REQUIRED:-0}
     volumes:
       - ./services/gateway/app:/app/app:ro
       - ./services/gateway/alembic:/app/alembic:ro
@@ -87,9 +88,9 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: interpretit
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-interpretit}
       GATEWAY_RPC_URL: http://gateway:8000
       INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
       MAX_DAILY_USD: ${MAX_DAILY_USD:-5}
@@ -109,9 +110,12 @@ services:
     volumes:
       - ./services/analysis/app:/app/app:ro
     depends_on:
-      - redis
-      - minio
-      - gateway
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      gateway:
+        condition: service_started
 
   arq-semantic:
     image: phase5-analysis:latest
@@ -126,9 +130,9 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: interpretit
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-interpretit}
       GATEWAY_RPC_URL: http://gateway:8000
       ARQ_QUEUE_NAME: semantic
       INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
@@ -149,9 +153,12 @@ services:
     volumes:
       - ./services/analysis/app:/app/app:ro
     depends_on:
-      - redis
-      - minio
-      - gateway
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      gateway:
+        condition: service_started
 
   arq-generation:
     image: phase5-analysis:latest
@@ -166,9 +173,9 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: interpretit
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-interpretit}
       GATEWAY_RPC_URL: http://gateway:8000
       ARQ_QUEUE_NAME: generation
       INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
@@ -189,9 +196,12 @@ services:
     volumes:
       - ./services/analysis/app:/app/app:ro
     depends_on:
-      - redis
-      - minio
-      - gateway
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      gateway:
+        condition: service_started
 
   frontend:
     build:

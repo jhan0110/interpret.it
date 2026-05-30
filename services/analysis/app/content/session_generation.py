@@ -52,15 +52,34 @@ def _coerce_params(payload: dict) -> GenerateParams:
     )
 
 
+# Cap parallel TTS calls so a generation burst doesn't trip OpenRouter
+# rate limits. 4 is conservative on the documented free-tier RPS;
+# bump cautiously after observing real-world throughput.
+_TTS_CONCURRENCY = 4
+
+
 async def run_generation(_ctx: dict, payload: dict) -> dict:
-    """arq entrypoint. `payload` is the dict pushed by gateway.enqueue_generation."""
+    """arq entrypoint. `payload` is the dict pushed by gateway.enqueue_generation.
+
+    Earlier versions ran each segment sequentially (TTS → embed → RPC
+    insert), which on n=10 routinely overran the worker's 300 s
+    job_timeout cold. We now:
+
+    - Batch all embeddings in one `embed_texts(...)` call (instead of
+      ten size-1 batches).
+    - Fan out TTS across a bounded `asyncio.Semaphore` so concurrent
+      calls don't trip OpenRouter rate limits.
+    - Issue segment inserts as each (text, audio, embedding) trio is
+      ready, so the gateway sees progress incrementally.
+    """
     session_id = payload["session_id"]
     learner_id = payload["learner_id"]
     domain = payload["domain"]
     log.info("generation start session=%s learner=%s", session_id, learner_id)
 
+    params = _coerce_params(payload)
+    target_n = params.n  # used in the failure branch's progress event
     try:
-        params = _coerce_params(payload)
         duration_spec = DURATION_BANDS[params.duration]
         await publish_generation_event(
             {
@@ -73,16 +92,41 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
         )
 
         result = generate_segments(params)
-        segment_ids: list[str] = []
+        segments = list(result.segments)
 
-        for idx, seg in enumerate(result.segments):
-            audio_key = await asyncio.to_thread(
-                generate_segment_audio,
-                seg.source_text,
-                seg.source_lang,
-                target_seconds=duration_spec.target_seconds,
-            )
-            embedding_vec = embed_texts([seg.source_text])[0]
+        # Single batched embedding call instead of n size-1 calls.
+        # embed_texts is CPU-bound; route through to_thread to avoid
+        # blocking the worker event loop.
+        embeddings = await asyncio.to_thread(
+            embed_texts, [s.source_text for s in segments]
+        )
+
+        sem = asyncio.Semaphore(_TTS_CONCURRENCY)
+
+        async def _tts(idx: int, seg) -> tuple[int, str]:
+            async with sem:
+                key = await asyncio.to_thread(
+                    generate_segment_audio,
+                    seg.source_text,
+                    seg.source_lang,
+                    target_seconds=duration_spec.target_seconds,
+                )
+                return idx, key
+
+        tts_tasks = [
+            asyncio.create_task(_tts(i, seg)) for i, seg in enumerate(segments)
+        ]
+
+        # As each (TTS, embedding) pair lands, insert the segment and
+        # bump the progress counter. We process completions in TTS
+        # finish order — order doesn't matter because the gateway
+        # records segment_ids by index and we re-sort below.
+        segment_ids: list[str | None] = [None] * len(segments)
+        completed = 0
+        for fut in asyncio.as_completed(tts_tasks):
+            idx, audio_key = await fut
+            seg = segments[idx]
+            embedding_vec = embeddings[idx]
             insert_payload = {
                 "source_text": seg.source_text,
                 "source_lang": seg.source_lang,
@@ -96,29 +140,32 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
                 ],
             }
             resp = await push_segment_insert(insert_payload)
-            segment_ids.append(resp["segment_id"])
+            segment_ids[idx] = resp["segment_id"]
+            completed += 1
             await publish_generation_event(
                 {
                     "type": "progress",
                     "session_id": session_id,
-                    "ready": idx + 1,
+                    "ready": completed,
                     "target": params.n,
                     "state": "pending",
                 }
             )
 
-        await _push_planned_segments(session_id, segment_ids, result.scenario_summary)
+        # All slots are guaranteed populated at this point; cast for mypy.
+        final_ids: list[str] = [sid for sid in segment_ids if sid is not None]
+        await _push_planned_segments(session_id, final_ids, result.scenario_summary)
         await publish_generation_event(
             {
                 "type": "complete",
                 "session_id": session_id,
-                "count": len(segment_ids),
+                "count": len(final_ids),
                 "scenario_summary": result.scenario_summary,
-                "segment_ids": segment_ids,
+                "segment_ids": final_ids,
             }
         )
-        log.info("generation complete session=%s count=%d", session_id, len(segment_ids))
-        return {"ok": True, "count": len(segment_ids)}
+        log.info("generation complete session=%s count=%d", session_id, len(final_ids))
+        return {"ok": True, "count": len(final_ids)}
     except Exception as exc:  # noqa: BLE001
         log.exception("generation failed session=%s: %s", session_id, exc)
         await publish_generation_event(
@@ -126,7 +173,7 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
                 "type": "progress",
                 "session_id": session_id,
                 "ready": 0,
-                "target": 10,
+                "target": target_n,
                 "state": "failed",
             }
         )

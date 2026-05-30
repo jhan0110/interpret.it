@@ -80,7 +80,7 @@ Learner's transcript:
 Semantic errors identified:
 {payload["errors"]}
 
-Overall score: {payload["overall_score"]:.2f}
+Overall score: {float(payload.get("overall_score", 0.0) or 0.0):.2f}
 """
 
     try:

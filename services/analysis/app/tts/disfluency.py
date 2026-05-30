@@ -11,11 +11,14 @@ defined at module level so it can be extended without touching splice logic.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Literal
 
 from pydub import AudioSegment
+
+log = logging.getLogger(__name__)
 
 DisfluencyType = Literal["filler_ko", "filler_en", "breath", "silence_200", "silence_500", "silence_1000", "silence_2000"]
 
@@ -95,11 +98,24 @@ def splice_disfluencies(
 
     sorted_spec = sorted(spec, key=lambda s: s.timestamp_ms)
 
+    # Drop out-of-bounds insertions explicitly rather than silently
+    # clamping them all to the end of the base track (which would
+    # stack every overflow at the tail).
+    base_len = len(base)
+    filtered = [s for s in sorted_spec if 0 <= s.timestamp_ms <= base_len]
+    dropped = len(sorted_spec) - len(filtered)
+    if dropped:
+        log.warning(
+            "splice: dropped %d insertion(s) outside base [0, %d]",
+            dropped,
+            base_len,
+        )
+
     result = AudioSegment.empty()
     cursor_ms = 0
 
-    for insertion in sorted_spec:
-        cut_at = max(0, min(insertion.timestamp_ms, len(base)))
+    for insertion in filtered:
+        cut_at = max(0, min(insertion.timestamp_ms, base_len))
 
         # Append base up to cut point (with crossfade overlap if possible)
         if cut_at > cursor_ms:

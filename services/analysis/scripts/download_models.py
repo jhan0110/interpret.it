@@ -6,18 +6,16 @@ Run after the analysis image is built:
 
 Or set USE_MOCKS=1 (the default) to skip the live embedding model and the
 mock hash-based embeddings will be used instead.
+
+Earlier versions also downloaded spaCy models for tokenisation; spaCy is
+no longer a dependency (we use sentence-transformers tokenisation +
+Groq Whisper word-timestamps), so the only weights worth pre-fetching
+are the multilingual-e5 embedding model.
 """
 
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
-
-
-def _download_spacy(name: str) -> None:
-    print(f"spaCy: downloading {name}...")
-    subprocess.check_call([sys.executable, "-m", "spacy", "download", name])
 
 
 def _download_sentence_transformer() -> None:
@@ -29,8 +27,6 @@ def _download_sentence_transformer() -> None:
 
 
 def main() -> None:
-    _download_spacy("ko_core_news_lg")
-    _download_spacy("en_core_web_trf")
     _download_sentence_transformer()
     print("Done.")
 

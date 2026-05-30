@@ -384,6 +384,19 @@ async def _handle_replay_request(
 
 @router.websocket("/ws/sessions/{session_id}")
 async def session_ws(ws: WebSocket, session_id: UUID) -> None:
+    # Auth gate: when WS_AUTH_REQUIRED=1, require a signed token via
+    # ?token=<...>. The token is short-lived (5 min) and binds to this
+    # session_id; see app/ws_auth.py. We close 1008 (policy violation)
+    # rather than 401 because WebSocket doesn't carry HTTP status to
+    # the client.
+    from app.ws_auth import is_required, verify_token
+
+    if is_required():
+        token = ws.query_params.get("token")
+        if not verify_token(session_id, token):
+            await ws.close(code=1008)
+            return
+
     await ws.accept()
 
     pending_audio_header: AudioSubmission | None = None
@@ -471,7 +484,12 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                     )
                     continue
 
-                replayed_flag = False
+                # Conservative on Redis failure: treat the attempt as
+                # replayed (= don't bump segment_count, don't credit
+                # tier progress). A transient Redis hiccup silently
+                # downgrading a true replay to a "fresh" attempt would
+                # contaminate mastery signal more than the inverse.
+                replayed_flag = True
                 try:
                     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
                     redis = aioredis.from_url(redis_url, decode_responses=True)
@@ -483,7 +501,10 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
                     finally:
                         await redis.close()
                 except Exception:
-                    log.exception("redis sismember failed for replay check")
+                    log.exception(
+                        "redis sismember failed for replay check — "
+                        "treating attempt as replayed (conservative)"
+                    )
 
                 try:
                     snap = await persist_attempt(

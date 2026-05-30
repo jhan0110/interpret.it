@@ -108,6 +108,7 @@ export function MemorizationRunner({
 
   const [recordingLevel, setRecordingLevel] = useState(0);
   const meterStreamRef = useRef<MediaStream | null>(null);
+  const meterStreamOwnedRef = useRef<boolean>(false);
 
   const [replaysRemaining, setReplaysRemaining] = useState<number>(replaysBudget);
   const [replayedThisSegment, setReplayedThisSegment] = useState(false);
@@ -115,6 +116,10 @@ export function MemorizationRunner({
   const replayDeniedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  // H16: when the server grants a replay while the audio element is
+  // briefly unmounted (during a state transition), we record the
+  // intent here and re-play once it remounts.
+  const pendingReplayRef = useRef<boolean>(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const wsClosedRef = useRef(false);
@@ -138,8 +143,11 @@ export function MemorizationRunner({
       cancelAnimationFrame(levelRafRef.current);
       levelRafRef.current = null;
     }
-    meterStreamRef.current?.getTracks().forEach((t) => t.stop());
+    if (meterStreamOwnedRef.current) {
+      meterStreamRef.current?.getTracks().forEach((t) => t.stop());
+    }
     meterStreamRef.current = null;
+    meterStreamOwnedRef.current = false;
     if (audioContextRef.current) {
       audioContextRef.current.close().catch(() => undefined);
       audioContextRef.current = null;
@@ -269,6 +277,12 @@ export function MemorizationRunner({
             // ignore
           }
           setAudioEnded(false);
+        } else {
+          // Audio element is briefly unmounted (state transition).
+          // Defer the replay until the element remounts; the audio
+          // `ref` callback below picks the flag up and triggers play.
+          pendingReplayRef.current = true;
+          setAudioEnded(false);
         }
         break;
       }
@@ -394,26 +408,39 @@ export function MemorizationRunner({
       if (cancelled) return;
 
       if (typeof window === "undefined") return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const AudioCtx: typeof AudioContext =
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).AudioContext ?? (window as any).webkitAudioContext;
+      type AudioCtxCtor = new () => AudioContext;
+      const w = window as Window & {
+        AudioContext?: AudioCtxCtor;
+        webkitAudioContext?: AudioCtxCtor;
+      };
+      const AudioCtx = w.AudioContext ?? w.webkitAudioContext;
       if (!AudioCtx) return;
 
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-        });
-      } catch {
-        return;
+      // H15: share the recorder's stream when available so we don't
+      // open the mic twice.
+      let stream: MediaStream | null = recorderRef.current?.stream ?? null;
+      let ownedStream = false;
+      if (stream === null) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              channelCount: 1,
+            },
+          });
+          ownedStream = true;
+        } catch {
+          return;
+        }
       }
       if (cancelled) {
-        stream.getTracks().forEach((t) => t.stop());
+        if (ownedStream) stream.getTracks().forEach((t) => t.stop());
         return;
       }
 
       meterStreamRef.current = stream;
+      meterStreamOwnedRef.current = ownedStream;
       const ctx = new AudioCtx();
       audioContextRef.current = ctx;
       const analyser = ctx.createAnalyser();
@@ -679,11 +706,27 @@ export function MemorizationRunner({
           autoPlay={state === "listening"}
           controls={false}
           src={audioUrl}
-          ref={audioRef}
+          ref={(el) => {
+            audioRef.current = el;
+            // H16: if a replay was granted while the element was
+            // unmounted, fire it now that the ref is live.
+            if (el && pendingReplayRef.current) {
+              pendingReplayRef.current = false;
+              try {
+                el.currentTime = 0;
+                void el.play();
+              } catch {
+                // ignore — same swallow as the inline path above
+              }
+            }
+          }}
           onLoadedMetadata={() => {
             const duration = (audioRef.current?.duration ?? 0) * 1000;
             console.log("[audio] metadata loaded, duration=", duration);
             setAudioDurationMs(duration);
+            // M17: un-stick `audioEnded` if metadata arrives after
+            // the 1.5s fallback. Same fix as SessionRunner.tsx.
+            setAudioEnded(false);
             if (audioFallbackRef.current !== null) {
               clearTimeout(audioFallbackRef.current);
               audioFallbackRef.current = null;

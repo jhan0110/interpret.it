@@ -64,7 +64,10 @@ def _ceiling_millicents() -> int:
         usd = float(os.environ.get("MAX_DAILY_USD", str(DEFAULT_MAX_DAILY_USD)))
     except ValueError:
         usd = DEFAULT_MAX_DAILY_USD
-    return int(usd * 100 * 1000)  # USD -> cents -> millicents
+    # Round to nearest millicent — `int()` truncated tiny fractional
+    # ceilings (e.g. MAX_DAILY_USD=0.0001 → 9 instead of 10 millicents
+    # after float jitter), silently lowering the cap.
+    return round(usd * 100 * 1000)  # USD -> cents -> millicents
 
 
 def _cost_millicents(call_kind: str) -> int:

@@ -13,22 +13,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Source MUST be present before `pip install .` so setuptools.find can
+# locate the `app` package. Without this, only deps land in site-packages
+# and the install is a no-op for project code.
 COPY pyproject.toml ./
+COPY app ./app
+COPY scripts ./scripts
+
 # Install CPU-only torch first from the pytorch index to avoid pulling
 # ~3 GB of NVIDIA CUDA libraries that we never use on Mac/CPU hosts.
+# sentence-transformers model weights (~1 GB for multilingual-e5)
+# download lazily on first use, or via:
+#     docker compose exec analysis python -m scripts.download_models
 RUN pip install --upgrade pip \
     && pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2.0" \
     && pip install .
-
-# spaCy + sentence-transformers libraries are installed via pyproject above.
-# The model weights are large (~1 GB combined for spaCy ko+en, ~1 GB for
-# multilingual-e5) so they download lazily on first use, or via the helper:
-#     docker compose exec analysis python -m scripts.download_models
-# Run that once after build; the models cache in /root/.cache and persist
-# across container restarts via the named volume if you mount one.
-
-COPY app ./app
-COPY scripts ./scripts
 
 EXPOSE 8001
 

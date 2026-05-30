@@ -29,3 +29,9 @@ node_modules/
 *.tmp
 *.pdf
 /backups/
+
+# Markdown notes (keep READMEs and runtime prompt templates)
+*.md
+!README.md
+!**/README.md
+!services/analysis/app/llm/prompts/*.md

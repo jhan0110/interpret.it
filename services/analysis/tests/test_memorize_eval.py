@@ -59,7 +59,10 @@ def _stub_extract(monkeypatch: pytest.MonkeyPatch, points: list[dict]) -> list[d
     """Force ``structured_generate`` (in memorize_mod) to return canned key points."""
     calls: list[dict] = []
 
-    def _fake(*, system: str, user: str, tool: dict, max_tokens: int = 1024):
+    def _fake(*, system: str, user: str, tool: dict, max_tokens: int = 1024, **_: object):
+        # Accept and ignore any newer kwargs (spend_kind, temperature,
+        # model, etc.) so production-side signature evolution doesn't
+        # break the stub.
         calls.append({"system": system, "user": user, "tool": tool["name"]})
         return {"key_points": points}
 
@@ -81,7 +84,8 @@ def _stub_eval(
         ]
     )
 
-    def _fake(*, system: str, user: str, tool: dict, max_tokens: int = 1024):
+    def _fake(*, system: str, user: str, tool: dict, max_tokens: int = 1024, **_: object):
+        # Same forward-compatible signature as `_stub_extract._fake`.
         calls.append({"tool": tool["name"], "user": user, "system": system})
         return next(sequence)
 

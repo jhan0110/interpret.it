@@ -96,10 +96,23 @@ def generate_reference(
     claude_ms = int((time.monotonic() - t_claude) * 1000)
     log.info("[reference.claude.done] took=%dms", claude_ms)
 
-    bundle = ReferenceBundle(
-        canonical=inp["canonical_translation"],
-        paraphrases=inp["acceptable_paraphrases"],
-    )
+    # Treat missing/empty LLM output defensively — the eval path
+    # downstream assumes a non-empty canonical and at least one
+    # paraphrase. If the model omitted them, fall back to a degenerate
+    # reference rather than crashing the whole attempt.
+    canonical = (inp.get("canonical_translation") or "").strip()
+    paraphrases_raw = inp.get("acceptable_paraphrases") or []
+    paraphrases = [p for p in paraphrases_raw if isinstance(p, str) and p.strip()]
+    if not canonical:
+        log.warning(
+            "[reference.fallback] LLM omitted canonical_translation — "
+            "using source_text as-is so eval can proceed"
+        )
+        canonical = source_text
+    if not paraphrases:
+        log.warning("[reference.fallback] no paraphrases — defaulting to [canonical]")
+        paraphrases = [canonical]
+    bundle = ReferenceBundle(canonical=canonical, paraphrases=paraphrases)
     total_ms = int((time.monotonic() - t0) * 1000)
     log.info(
         "[reference.done] canonical_len=%d paraphrases=%d total_took=%dms",

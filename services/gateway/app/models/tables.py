@@ -16,6 +16,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -97,14 +98,18 @@ class SessionRow(Base):
         nullable=False,
     )
     state: Mapped[str] = mapped_column(String, nullable=False, default="idle")
-    mode: Mapped[str] = mapped_column(String, nullable=False, default="interpretation")
+    mode: Mapped[str] = mapped_column(
+        String, nullable=False, default="interpretation", server_default="interpretation"
+    )
     domain: Mapped[str] = mapped_column(String, nullable=False)
     source_lang: Mapped[str] = mapped_column(String, nullable=False)
     target_lang: Mapped[str] = mapped_column(String, nullable=False)
     started_at: Mapped[datetime] = _ts(default_now=True)
     completed_at: Mapped[datetime | None] = _ts(nullable=True)
     segment_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    replays_budget: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    replays_budget: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=5, server_default="5"
+    )
     current_segment_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("segments.id", ondelete="SET NULL"),
@@ -112,7 +117,9 @@ class SessionRow(Base):
     )
     # Pre-generated 10-pack for "daily training session" sessions. When set,
     # the picker walks these in order rather than querying the ladder.
-    planned_segment_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Stored as a JSON array of UUID strings (e.g. ["uuid-1", "uuid-2"]).
+    # Typed as list[str] so callers must defensively parse via UUID(...).
+    planned_segment_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     generation_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     generation_state: Mapped[str] = mapped_column(
         String, nullable=False, default="none"
@@ -147,7 +154,9 @@ class AttemptRow(Base):
     recorded_at: Mapped[datetime] = _ts()
     prosody_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     semantic_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    replayed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    replayed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     closed_at: Mapped[datetime | None] = _ts(nullable=True)
 
     __table_args__ = (
@@ -171,7 +180,9 @@ class MasteryScoreRow(Base):
     )
     domain: Mapped[str] = mapped_column(String, primary_key=True)
     mastery: Mapped[float] = mapped_column(nullable=False, default=0.5)
-    tier: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    tier: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
     recent_scores: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     attempts_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_attempt_at: Mapped[datetime] = _ts()

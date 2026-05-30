@@ -16,7 +16,10 @@
 		}
 	}
 
-	@gateway_routes path /sessions* /learners* /internal* /health
+	# /internal/* is gateway↔analysis RPC over the docker network — never
+	# exposed publicly. The internal bearer (INTERNAL_RPC_SECRET) is the
+	# trust boundary; we don't want it routed through Caddy.
+	@gateway_routes path /sessions* /learners* /health
 	handle @gateway_routes {
 		basicauth {
 			{$BASIC_AUTH_USER} {$BASIC_AUTH_PASSWORD_HASH}

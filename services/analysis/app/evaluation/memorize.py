@@ -326,19 +326,29 @@ Learner's recall ({source_lang}):
     claude_ms = int((time.monotonic() - t_claude) * 1000)
     log.info("[memorize.claude.done] attempt=%s took=%dms", attempt_id, claude_ms)
 
+    # Normalise keys for lookup so a model that drops a trailing period
+    # or shifts whitespace doesn't silently get scored as "not recalled".
+    def _norm(s: str) -> str:
+        return " ".join(s.strip().casefold().split())
+
     recall_by_text: dict[str, bool] = {
-        kp["text"]: bool(kp["recalled"]) for kp in inp["key_points"]
+        _norm(kp.get("text", "")): bool(kp.get("recalled", False))
+        for kp in (inp.get("key_points") or [])
     }
     populated = [
         KeyPoint(
             text=kp.text,
             importance=kp.importance,
-            recalled=recall_by_text.get(kp.text, False),
+            recalled=recall_by_text.get(_norm(kp.text), False),
         )
         for kp in key_points
     ]
 
-    verbatim_bonus = float(inp.get("verbatim_bonus", 0.0))
+    verbatim_raw = inp.get("verbatim_bonus", 0.0)
+    try:
+        verbatim_bonus = float(verbatim_raw or 0.0)
+    except (TypeError, ValueError):
+        verbatim_bonus = 0.0
     overall_score = _compute_overall_score(populated, verbatim_bonus)
 
     followup_raw = inp["followup_exercise"]

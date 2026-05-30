@@ -42,6 +42,8 @@ def compute_prosody_from_words(
 ) -> ProsodyResult:
     """Build a ProsodyResult from ASR word timestamps. CPU-only, no I/O."""
     duration_ms = max(0.0, audio_duration_s * 1000.0)
+    now = datetime.now(UTC)
+    latency_ms = int((now - started_at).total_seconds() * 1000)
 
     if not words or duration_ms == 0:
         return ProsodyResult(
@@ -52,8 +54,8 @@ def compute_prosody_from_words(
             silence_ratio=1.0,
             cognitive_load_estimate="moderate",
             feedback_audio_path=feedback_audio_path,
-            computed_at=datetime.now(UTC),
-            latency_ms=int((datetime.now(UTC) - started_at).total_seconds() * 1000),
+            computed_at=now,
+            latency_ms=latency_ms,
         )
 
     pause_count = 0
@@ -69,7 +71,12 @@ def compute_prosody_from_words(
 
     silence_ratio = min(1.0, max(0.0, total_silence_ms / duration_ms))
     speech_duration_s = max(0.0, (duration_ms - total_silence_ms) / 1000.0)
-    mean_wpm = len(words) / (duration_ms / 1000.0 / 60.0)
+    # WPM uses *speech* duration, not total audio duration, so a learner
+    # with long leading/trailing silence isn't reported as slower than
+    # they actually spoke. Earlier versions divided by `duration_ms`,
+    # which made `mean_wpm` and `pause_rate` dimensionally inconsistent
+    # in the classifier and biased classification toward "overloaded".
+    mean_wpm = len(words) / max(speech_duration_s / 60.0, 1e-3)
     filler_count = _count_fillers(words, lang)
 
     cognitive_load = classify_cognitive_load(
@@ -78,6 +85,7 @@ def compute_prosody_from_words(
         filler_count=filler_count,
         mean_wpm=mean_wpm,
         silence_ratio=silence_ratio,
+        word_count=len(words),
     )
 
     return ProsodyResult(
@@ -88,6 +96,6 @@ def compute_prosody_from_words(
         silence_ratio=silence_ratio,
         cognitive_load_estimate=cognitive_load,
         feedback_audio_path=feedback_audio_path,
-        computed_at=datetime.now(UTC),
-        latency_ms=int((datetime.now(UTC) - started_at).total_seconds() * 1000),
+        computed_at=now,
+        latency_ms=latency_ms,
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from logging.config import fileConfig
 
@@ -16,11 +17,27 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+log = logging.getLogger("alembic.env")
+
 # Allow DATABASE_URL env override (for prod / CI).
 url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
 # Alembic runs synchronously — strip asyncpg if present.
 if url and "+asyncpg" in url:
+    log.info("alembic: rewriting DATABASE_URL '+asyncpg' → '+psycopg' for sync migrations")
     url = url.replace("+asyncpg", "+psycopg")
+
+# Fail loudly if no sync driver is importable rather than failing deep
+# inside engine_from_config with a cryptic traceback.
+try:
+    import psycopg  # type: ignore  # noqa: F401
+except ImportError:
+    try:
+        import psycopg2  # type: ignore  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "alembic requires psycopg (preferred) or psycopg2; install one of them"
+        ) from exc
+
 config.set_main_option("sqlalchemy.url", url or "")
 
 target_metadata = Base.metadata

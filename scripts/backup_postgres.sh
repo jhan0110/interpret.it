@@ -36,11 +36,18 @@ docker compose -p "$PROJECT" exec -T "$SERVICE" \
 
 # Refuse a suspiciously small dump — empty dumps usually mean a
 # silent connection failure rather than an actually empty DB.
+# Move bad dumps aside so the retention pruner doesn't see them and
+# eventually displace the last good backup.
 SIZE=$(stat -c %s "$OUT" 2>/dev/null || stat -f %z "$OUT")
 if [ "$SIZE" -lt 1024 ]; then
-    echo "backup_postgres: dump suspiciously small ($SIZE bytes) — keeping but flagging" >&2
+    QUARANTINE="${OUT}.suspect"
+    mv "$OUT" "$QUARANTINE"
+    echo "backup_postgres: dump suspiciously small ($SIZE bytes) — quarantined as $QUARANTINE" >&2
+    exit 1
 fi
 
+# Retention only prunes well-formed dumps (`pgdump-*.sql.gz`); the
+# `.suspect` suffix above is preserved indefinitely for inspection.
 find "$BACKUP_DIR" -name 'pgdump-*.sql.gz' -mtime "+$RETENTION_DAYS" -delete
 
 echo "backup_postgres: wrote $OUT ($SIZE bytes)"

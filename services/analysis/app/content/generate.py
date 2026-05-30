@@ -169,14 +169,25 @@ def generate_segments(params: GenerateParams) -> GenerationResult:
     """
     if not params.topics:
         raise ValueError("at least one topic is required")
-    if os.getenv("USE_MOCKS", "1") == "1":
+    # Default OPT-IN with "0": every other call site reads USE_MOCKS as
+    # opt-in (mock only when explicitly requested). The old default of
+    # "1" silently served fake phrases on any deployment where the env
+    # var happened to be unset.
+    if os.getenv("USE_MOCKS", "0") == "1":
         log.info("generate_segments: USE_MOCKS=1, returning mock result")
         return _mock_generation(params)
     variables = _template_variables(params)
-    tool_out = run_template("generate_segments", variables, spend_kind="claude_generation")
+    # M14 fix: run_template now returns `(result, rendered_call)` so we
+    # don't have to re-render the template a second time just to compute
+    # the prompt-version hash.
+    tool_out, rendered = run_template(
+        "generate_segments", variables, spend_kind="claude_generation"
+    )
     raw_segments = tool_out.get("segments", [])
     cleaned = _validate_segments(raw_segments, params.n)
     src, tgt = params.direction.split("-")
+    # TODO: multi-topic sets are tagged with the first topic for picker
+    # compatibility; the per-segment domain is therefore lossy.
     primary_topic = params.topics[0]
     segments = tuple(
         GeneratedSegment(
@@ -189,7 +200,6 @@ def generate_segments(params: GenerateParams) -> GenerationResult:
         )
         for s in cleaned
     )
-    rendered = render_template("generate_segments", variables)
     template_hash = _hash_inputs(rendered.system, rendered.user)
     vars_hash = _hash_inputs(
         ",".join(sorted(params.topics)),

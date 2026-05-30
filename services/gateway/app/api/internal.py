@@ -71,6 +71,22 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
+_publish_client: aioredis.Redis | None = None
+
+
+async def _get_publish_client() -> aioredis.Redis:
+    """Module-level cached Redis client for the publish hot path.
+
+    Each prosody/semantic/state envelope used to open and close a
+    fresh connection. With dozens of attempts per session that was
+    measurable overhead and burned Redis client connections.
+    """
+    global _publish_client
+    if _publish_client is None:
+        _publish_client = aioredis.from_url(_REDIS_URL, decode_responses=True)
+    return _publish_client
+
+
 async def _publish_ws(session_id: UUID, envelope: dict) -> None:
     """Publish a ready-to-send WS envelope on the `analysis_events` channel.
 
@@ -78,14 +94,11 @@ async def _publish_ws(session_id: UUID, envelope: dict) -> None:
     the matching live connection. Lossy on purpose — a disconnected client
     recovers state from the session row on reconnect.
     """
-    client = aioredis.from_url(_REDIS_URL, decode_responses=True)
-    try:
-        await client.publish(
-            ANALYSIS_CHANNEL,
-            json.dumps({"session_id": str(session_id), "envelope": envelope}),
-        )
-    finally:
-        await client.aclose()
+    client = await _get_publish_client()
+    await client.publish(
+        ANALYSIS_CHANNEL,
+        json.dumps({"session_id": str(session_id), "envelope": envelope}),
+    )
 
 
 class ParaphraseInsert(BaseModel):
@@ -216,14 +229,38 @@ async def post_session_plan(body: SessionPlanRequest) -> SessionPlanResponse:
 
 
 async def _close_if_ready(attempt_id: UUID) -> None:
-    """Promote attempt → closed_at + update mastery when both results land."""
+    """Promote attempt → closed_at + update mastery when both results land.
+
+    Two correctness measures applied here:
+
+    1. The AttemptRow and MasteryScoreRow reads are wrapped in
+       `SELECT ... FOR UPDATE` so the concurrent prosody+semantic
+       handlers can't both pass the `closed_at is None` guard and
+       both update mastery. The lock is released on commit.
+
+    2. The session state transition `analyzing → feedback` is a CAS
+       (conditional UPDATE) — if a concurrent `POST /sessions/{id}/complete`
+       has moved the state out of `analyzing`, we don't resurrect it.
+    """
+    from sqlalchemy import update
+
     sm = sessionmaker_factory()
     async with sm() as db:
         row = (
-            await db.execute(select(AttemptRow).where(AttemptRow.id == attempt_id))
+            await db.execute(
+                select(AttemptRow)
+                .where(AttemptRow.id == attempt_id)
+                .with_for_update()
+            )
         ).scalar_one_or_none()
-        has_prosody = row is not None and row.prosody_result is not None
-        has_semantic = row is not None and row.semantic_result is not None
+        # JSONB columns are typed as `dict | None`, but a buggy
+        # worker write of `[]` or `""` would crash `.get(...)` with
+        # AttributeError. Coerce non-dict values to {} so the
+        # attempt is closed cleanly rather than getting stuck.
+        prosody = row.prosody_result if isinstance(getattr(row, "prosody_result", None), dict) else None
+        semantic = row.semantic_result if isinstance(getattr(row, "semantic_result", None), dict) else None
+        has_prosody = prosody is not None
+        has_semantic = semantic is not None
         if row is None or not has_prosody or not has_semantic:
             log.info(
                 "[gw.close_if_ready.waiting] attempt=%s pros=%s sem=%s",
@@ -236,12 +273,17 @@ async def _close_if_ready(attempt_id: UUID) -> None:
             return
         log.info("[gw.close_if_ready.closing] attempt=%s", attempt_id)
 
-        sem_score = float(row.semantic_result.get("overall_score", 0.0))
-        load = row.prosody_result.get("cognitive_load_estimate", "moderate")
+        sem_score = float(semantic.get("overall_score", 0.0)) if semantic else 0.0
+        load = prosody.get("cognitive_load_estimate", "moderate") if prosody else "moderate"
         score = combined_score(sem_score, load)
 
+        # Lock the session row so a concurrent /complete request waits.
         session_row = (
-            await db.execute(select(SessionRow).where(SessionRow.id == row.session_id))
+            await db.execute(
+                select(SessionRow)
+                .where(SessionRow.id == row.session_id)
+                .with_for_update()
+            )
         ).scalar_one_or_none()
         if session_row is None:
             return
@@ -252,12 +294,16 @@ async def _close_if_ready(attempt_id: UUID) -> None:
         # contaminate the tier signal.
         is_interpretation = getattr(session_row, "mode", "interpretation") == "interpretation"
 
+        # Lock the mastery row too — two attempts closing back-to-back
+        # otherwise see the same baseline and one update is lost.
         ms = (
             await db.execute(
-                select(MasteryScoreRow).where(
+                select(MasteryScoreRow)
+                .where(
                     MasteryScoreRow.learner_id == row.learner_id,
                     MasteryScoreRow.domain == domain,
                 )
+                .with_for_update()
             )
         ).scalar_one_or_none()
         if ms is None:
@@ -295,15 +341,19 @@ async def _close_if_ready(attempt_id: UUID) -> None:
         row.closed_at = datetime.now(UTC)
 
         session_id = row.session_id
-        # Only drive analyzing -> feedback while the learner is still in the
-        # session; if they ended it early, leave the terminal state alone.
-        notify = session_row.state == "analyzing"
+        # CAS the state transition. If a concurrent /complete already
+        # moved the session out of `analyzing`, rowcount==0 and we
+        # don't publish a state-change envelope.
+        result = await db.execute(
+            update(SessionRow)
+            .where(SessionRow.id == session_id, SessionRow.state == "analyzing")
+            .values(state="feedback")
+        )
+        notify = bool(result.rowcount)
         await db.commit()
 
     if not notify:
         return
-
-    await set_state(session_id, "feedback")
     state_change = WSStateChangePayload(
         session_id=session_id,
         from_="analyzing",  # type: ignore[arg-type]

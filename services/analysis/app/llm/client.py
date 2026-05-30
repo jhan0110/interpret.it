@@ -30,9 +30,18 @@ def _get_client() -> OpenAI:
             raise RuntimeError(
                 "OPENROUTER_API_KEY is required (or OPENAI_API_KEY as fallback)"
             )
+        import httpx
+
+        # OpenRouter occasionally stalls on first-token latency. The
+        # SDK default timeout is 600s, which would hog the entire
+        # 300s generation budget on a single bad request. Use a
+        # 5s connect + 60s read budget and let the SDK retry twice.
+        timeout = httpx.Timeout(60.0, connect=5.0)
         _client = OpenAI(
             api_key=api_key,
             base_url=os.environ.get("OPENROUTER_BASE_URL", _DEFAULT_BASE_URL),
+            timeout=timeout,
+            max_retries=2,
         )
     return _client
 
@@ -55,6 +64,7 @@ def structured_generate(
     tool: dict,
     model: str | None = None,
     max_tokens: int = 1024,
+    temperature: float | None = None,
     spend_kind: str = "claude_eval",
 ) -> dict:
     """Call the LLM with a single tool and return the tool input dict.
@@ -97,16 +107,19 @@ def structured_generate(
 
     record_spend(spend_kind)
 
-    response = client.chat.completions.create(
-        model=resolved_model,
-        max_tokens=max_tokens,
-        messages=[
+    create_kwargs: dict = {
+        "model": resolved_model,
+        "max_tokens": max_tokens,
+        "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        tools=[fn_tool],
-        tool_choice={"type": "function", "function": {"name": fn_name}},
-    )
+        "tools": [fn_tool],
+        "tool_choice": {"type": "function", "function": {"name": fn_name}},
+    }
+    if temperature is not None:
+        create_kwargs["temperature"] = temperature
+    response = client.chat.completions.create(**create_kwargs)
 
     message = response.choices[0].message
     tool_calls = message.tool_calls or []

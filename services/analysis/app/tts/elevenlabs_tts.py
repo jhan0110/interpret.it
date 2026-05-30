@@ -97,17 +97,34 @@ def _model_cache_tag() -> str:
     return "el-" + model.replace("_", "-")
 
 
+# Bump this constant whenever you edit the OpenAI TTS system prompt
+# below. The cache key includes its hash so a prompt edit invalidates
+# every cached audio object (since the audio it produces will differ).
+_OPENAI_TTS_SYSTEM_PROMPT_VERSION = "v2"
+
+
 def _minio_key(text: str, voice_id: str, prefix: str = "tts") -> str:
-    h = hashlib.sha256(f"{voice_id}:{text}".encode()).hexdigest()[:16]
+    # Include the prompt-version tag so a prompt edit invalidates the
+    # cache. Without this, a tweak that changes the model's behaviour
+    # (e.g. forcing verbatim reading) leaves stale audio behind.
+    salt = f"{voice_id}:{_OPENAI_TTS_SYSTEM_PROMPT_VERSION}:{text}"
+    h = hashlib.sha256(salt.encode()).hexdigest()[:16]
     return f"{prefix}/{_model_cache_tag()}/{h}.mp3"
 
 
 def _object_exists(bucket: str, key: str) -> bool:
+    """Narrow ClientError catch — auth or network failures shouldn't
+    masquerade as "object missing" (which would trigger a re-upload)."""
+    from botocore.exceptions import ClientError
+
     try:
         _get_s3().head_object(Bucket=bucket, Key=key)
         return True
-    except Exception:
-        return False
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return False
+        raise
 
 
 def _silent_mp3(seconds: int) -> bytes:
@@ -262,8 +279,21 @@ def _generate_and_store(
     if _use_mocks():
         audio_bytes = _silent_mp3(mock_duration_s)
     else:
+        # Record spend ONLY after a successful real TTS call. Earlier
+        # versions recorded before, so a retry on a transient failure
+        # double-charged the daily spend ceiling.
+        try:
+            audio_bytes = _real_tts(text, voice_id)
+        except RuntimeError as exc:
+            # The streaming chat-completion path sometimes yields no
+            # audio_b64 chunks on first attempt. One quick retry covers
+            # the transient case before we surface the error upward.
+            if "audio output missing" in str(exc):
+                log.warning("[tts.retry_empty] key=%s — retrying once", key)
+                audio_bytes = _real_tts(text, voice_id)
+            else:
+                raise
         _record_tts_spend(prefix, mock_duration_s)
-        audio_bytes = _real_tts(text, voice_id)
     log.info("[tts.upload.begin] key=%s bytes=%d", key, len(audio_bytes))
     t_up = time.monotonic()
     _get_s3().put_object(

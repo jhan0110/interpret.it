@@ -44,7 +44,7 @@ FRONT_MATTER_DELIMITER = "---"
 class PromptCall:
     name: str
     model: str
-    temperature: float  # noted for future use; structured_generate does not yet pass it
+    temperature: float
     max_tokens: int
     system: str
     user: str
@@ -141,21 +141,33 @@ def render_template(name: str, variables: dict) -> PromptCall:
     )
 
 
-def run_template(name: str, variables: dict, *, spend_kind: str | None = None) -> dict:
-    """Render + call `structured_generate`. Returns the tool_use input dict.
+def run_template(
+    name: str, variables: dict, *, spend_kind: str | None = None
+) -> tuple[dict, PromptCall]:
+    """Render + call `structured_generate`. Returns `(tool_input, PromptCall)`.
+
+    Returning the `PromptCall` alongside the result lets callers compute
+    prompt-version hashes (or anything else that depends on the rendered
+    template) without re-rendering. Older call sites only used the dict
+    return; those should switch to `result, call = run_template(...)`
+    or `result = run_template(...)[0]`.
 
     `spend_kind` lets the caller tag the spend bucket for the daily-spend
-    ceiling. Defaults to a per-template name (``claude_<name>``) so most
-    templates work without explicit override.
+    ceiling. Defaults to a per-template name (``claude_<name>``).
     """
     call = render_template(name, variables)
-    log.debug("prompt %s rendered: model=%s tokens=%d", call.name, call.model, call.max_tokens)
+    log.debug(
+        "prompt %s rendered: model=%s tokens=%d temp=%.2f",
+        call.name, call.model, call.max_tokens, call.temperature,
+    )
     kind = spend_kind or f"claude_{name.replace('-', '_')}"
-    return structured_generate(
+    result = structured_generate(
         system=call.system,
         user=call.user,
         tool=call.tool,
         model=call.model,
         max_tokens=call.max_tokens,
+        temperature=call.temperature,
         spend_kind=kind,
     )
+    return result, call

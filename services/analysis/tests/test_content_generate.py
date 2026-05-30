@@ -101,16 +101,16 @@ def test_generate_segments_calls_llm_when_mocks_off() -> None:
             for i in range(10)
         ],
     }
+    # `run_template` now returns `(tool_out, PromptCall)` so the second
+    # render is no longer needed for the prompt hash.
+    fake_call = mock.Mock(system="sys", user="usr")
     with mock.patch.dict(os.environ, {"USE_MOCKS": "0"}):
         with mock.patch(
-            "app.content.generate.run_template", return_value=fake_tool_out
-        ):
-            with mock.patch(
-                "app.content.generate.render_template"
-            ) as render_mock:
-                render_mock.return_value = mock.Mock(
-                    system="sys", user="usr"
-                )
-                result = generate_segments(_params(user_level=3))
+            "app.content.generate.run_template",
+            return_value=(fake_tool_out, fake_call),
+        ) as rt_mock:
+            result = generate_segments(_params(user_level=3))
     assert len(result.segments) == 10
     assert result.scenario_summary == "Test"
+    # `run_template` should be called exactly once now (was twice).
+    assert rt_mock.call_count == 1

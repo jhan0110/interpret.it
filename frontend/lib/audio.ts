@@ -32,10 +32,17 @@ export type RecordingResult = {
 export class AttemptRecorder {
   private mediaRecorder: MediaRecorder | null = null;
   private chunks: BlobPart[] = [];
-  private stream: MediaStream | null = null;
+  // Exposed read-only via `getStream()` so the level-meter UI can
+  // share this device handle instead of opening a second `getUserMedia`.
+  private _stream: MediaStream | null = null;
   private startedAt = 0;
   private resolveStop: ((r: RecordingResult) => void) | null = null;
   private rejectStop: ((err: Error) => void) | null = null;
+
+  /** The live MediaStream while recording, or null otherwise. */
+  get stream(): MediaStream | null {
+    return this._stream;
+  }
 
   static isSupported(): boolean {
     if (typeof window === "undefined") return false;
@@ -60,7 +67,7 @@ export class AttemptRecorder {
       throw new Error("mediaDevices unavailable in this environment");
     }
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    this._stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -69,7 +76,7 @@ export class AttemptRecorder {
     });
 
     const mimeType = this.pickMime();
-    this.mediaRecorder = new MediaRecorder(this.stream, { mimeType });
+    this.mediaRecorder = new MediaRecorder(this._stream, { mimeType });
     this.chunks = [];
 
     this.mediaRecorder.ondataavailable = (ev) => {
@@ -81,8 +88,8 @@ export class AttemptRecorder {
     this.mediaRecorder.onstop = () => {
       const durationMs = Math.max(0, performance.now() - this.startedAt);
       const blob = new Blob(this.chunks, { type: mimeType });
-      this.stream?.getTracks().forEach((t) => t.stop());
-      this.stream = null;
+      this._stream?.getTracks().forEach((t) => t.stop());
+      this._stream = null;
       this.mediaRecorder = null;
       this.resolveStop?.({ blob, durationMs: Math.round(durationMs), mimeType });
       this.resolveStop = null;
@@ -115,9 +122,9 @@ export class AttemptRecorder {
     if (!this.mediaRecorder) return;
     this.mediaRecorder.onstop = null;
     this.mediaRecorder.stop();
-    this.stream?.getTracks().forEach((t) => t.stop());
+    this._stream?.getTracks().forEach((t) => t.stop());
     this.mediaRecorder = null;
-    this.stream = null;
+    this._stream = null;
     this.resolveStop = null;
     this.rejectStop = null;
   }

@@ -34,7 +34,11 @@ KeyPointImportance = Literal["primary", "secondary"]
 class AudioSubmission(BaseModel):
     segment_id: UUID
     attempt_id: UUID
-    audio_format: str
+    # Browsers emit a variety of MIME-y strings here (opus/webm, audio/webm,
+    # audio/webm;codecs=opus, and Safari's audio/mp4). Validate softly: any
+    # non-empty string up to a sane length is accepted; semantic checks
+    # live in the audio-decoder.
+    audio_format: str = Field(min_length=1, max_length=64)
     byte_length: int
     duration_ms: int
     recorded_at: datetime

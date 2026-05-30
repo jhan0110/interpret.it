@@ -169,12 +169,18 @@ def evaluate(
         len(reference.canonical),
     )
 
-    system = _SYSTEM_PROMPT.format(
-        register=register,
-        domain=domain,
-        source_lang=source_lang,
-        target_lang=target_lang,
-        difficulty_level=difficulty_level,
+    # `str.format` was historically a latent injection vector: any
+    # future use of user-supplied content as a format argument that
+    # contains literal `{}` would raise. Switch to %-substitution via
+    # an explicit replace so the prompt template is mechanically safe
+    # against that class of bug. Today the substituted values are all
+    # enum-constrained but the discipline is worth keeping.
+    system = (
+        _SYSTEM_PROMPT.replace("{register}", str(register))
+        .replace("{domain}", str(domain))
+        .replace("{source_lang}", str(source_lang))
+        .replace("{target_lang}", str(target_lang))
+        .replace("{difficulty_level}", str(difficulty_level))
     )
 
     user_message = f"""\
@@ -213,14 +219,19 @@ Learner's interpretation ({target_lang}):
             severity=e["severity"],
             explanation=e["explanation"],
         )
-        for e in inp["errors"]
+        for e in (inp.get("errors") or [])
     ]
-    followup_raw = inp["followup_exercise"]
+    followup_raw = inp.get("followup_exercise") or {}
     followup = FollowupExercise(
-        type=followup_raw["type"],
-        prompt_text=followup_raw["prompt_text"],
+        type=followup_raw.get("type", "repeat"),
+        prompt_text=followup_raw.get("prompt_text", ""),
         prompt_audio_path=followup_audio_path,
     )
+    try:
+        overall_score = float(inp.get("overall_score", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        log.warning("[eval.bad_score] attempt=%s raw=%r", attempt_id, inp.get("overall_score"))
+        overall_score = 0.0
     result = SemanticResult(
         attempt_id=attempt_id,
         source_text=source_text,
@@ -228,8 +239,8 @@ Learner's interpretation ({target_lang}):
         reference_translation=reference.canonical,
         acceptable_paraphrases=reference.paraphrases,
         errors=errors,
-        overall_score=float(inp["overall_score"]),
-        feedback_text=inp["feedback_text"],
+        overall_score=overall_score,
+        feedback_text=inp.get("feedback_text", ""),
         feedback_audio_path=feedback_audio_path,
         followup_exercise=followup,
         computed_at=now,

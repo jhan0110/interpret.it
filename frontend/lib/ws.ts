@@ -76,8 +76,13 @@ export class WSClient {
       try {
         const msg = JSON.parse(ev.data as string) as ServerMessage;
         this._dispatch(msg);
-      } catch {
-        // Malformed frame — ignore
+      } catch (err) {
+        // Malformed frame — log a short preview so envelope drift
+        // doesn't disappear silently into the dev console.
+        const preview = typeof ev.data === "string"
+          ? ev.data.slice(0, 120)
+          : "(non-string)";
+        console.warn("[ws] dropped malformed frame:", preview, err);
       }
     };
 

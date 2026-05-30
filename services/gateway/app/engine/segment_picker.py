@@ -100,19 +100,28 @@ async def _candidate_rows(
 async def _embeddings_for_segments(
     db: AsyncSession, segment_ids: list[UUID]
 ) -> dict[UUID, list[float]]:
+    """Return one representative embedding per segment.
+
+    Multiple paraphrases per segment may exist; we deterministically
+    pick the earliest one (`ORDER BY segment_id, created_at`) so the
+    novelty filter doesn't flip-flop between calls.
+    """
     if not segment_ids:
         return {}
-    rows = (
-        await db.execute(
-            select(ParaphraseEmbeddingRow).where(
-                ParaphraseEmbeddingRow.segment_id.in_(segment_ids)
-            )
+    # SQLAlchemy's DISTINCT ON is dialect-specific; build it via
+    # `.distinct(column)` which Postgres maps to DISTINCT ON.
+    stmt = (
+        select(ParaphraseEmbeddingRow)
+        .where(ParaphraseEmbeddingRow.segment_id.in_(segment_ids))
+        .order_by(
+            ParaphraseEmbeddingRow.segment_id,
+            ParaphraseEmbeddingRow.created_at,
         )
-    ).scalars().all()
+        .distinct(ParaphraseEmbeddingRow.segment_id)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
     out: dict[UUID, list[float]] = {}
     for r in rows:
-        # Multiple paraphrases per segment may exist; the novelty check
-        # only needs one representative vector, so last-write-wins is fine.
         out[r.segment_id] = list(r.embedding) if r.embedding is not None else []
     return out
 
@@ -160,30 +169,54 @@ async def _pick_from_plan(
     plan = session_row.planned_segment_ids
     if not plan:
         return None
-    attempted = {
-        a.segment_id
-        for a in (
+    # Only fetch the segment_id column — full AttemptRow is overkill here
+    # and adds a few KB per existing attempt.
+    attempted_ids = set(
+        (
             await db.execute(
-                select(AttemptRow).where(
+                select(AttemptRow.segment_id).where(
                     AttemptRow.session_id == session_row.id
                 )
             )
-        ).scalars().all()
-    }
+        )
+        .scalars()
+        .all()
+    )
     for sid_str in plan:
         try:
             sid = UUID(sid_str) if isinstance(sid_str, str) else sid_str
         except (TypeError, ValueError):
+            # A bad UUID in `planned_segment_ids` is data corruption,
+            # not "plan exhausted" — log and skip so the next entry has
+            # a chance, but loudly enough that ops can investigate.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "planned_segment_ids: malformed UUID %r in session %s",
+                sid_str,
+                session_row.id,
+            )
             continue
-        if sid in attempted:
+        if sid in attempted_ids:
             continue
         row = (
             await db.execute(select(SegmentRow).where(SegmentRow.id == sid))
         ).scalar_one_or_none()
         if row is None:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "planned_segment_ids: missing segment %s in session %s — skipping",
+                sid,
+                session_row.id,
+            )
             continue
+        # Only persist `current_segment_id` here. `segment_count` is
+        # bumped by `persist_attempt` once the learner has actually
+        # produced an attempt — that way a network blip between
+        # `segment.play` emission and `audio.submit` doesn't silently
+        # consume a plan slot.
         session_row.current_segment_id = row.id
-        session_row.segment_count = (session_row.segment_count or 0) + 1
         await db.commit()
         await db.refresh(row)
         return PickedSegment(segment=row, difficulty_level=row.difficulty_level)
@@ -255,17 +288,20 @@ async def pick_segment_for_session(
     recent_embeddings = [v for v in recent_embeddings_map.values() if v]
     history = aggregate_history(_attempts_to_views(recent))
 
-    # Cascade walks outward from the target across the full 1..10 ladder so
-    # a small seed (or a learner whose target sits at an empty level) can
-    # still find something. If everything is excluded by recency, retry
-    # once with recency relaxed — better to repeat than to dead-end.
+    # Cascade walks outward symmetrically: target first, then ±1, ±2, ...
+    # Any level outside [1, 10] is silently skipped. For an edge target
+    # (e.g. 1 or 10) this devolves to a one-sided walk, which is fine.
     def _cascade(t: int) -> list[int]:
         seen: list[int] = []
-        for delta in range(0, 10):
-            for sign in (0,) if delta == 0 else (-1, +1):
-                lvl = t + sign * delta
-                if 1 <= lvl <= 10 and lvl not in seen:
-                    seen.append(lvl)
+
+        def _push(lvl: int) -> None:
+            if 1 <= lvl <= 10 and lvl not in seen:
+                seen.append(lvl)
+
+        _push(t)
+        for delta in range(1, 10):
+            _push(t - delta)
+            _push(t + delta)
         return seen
 
     chosen: SegmentRow | None = None
@@ -289,8 +325,11 @@ async def pick_segment_for_session(
     if chosen is None:
         return None
 
+    # See `_pick_from_plan`: `segment_count` is bumped on attempt
+    # persistence, not at pick time, so a WS-level failure between
+    # the pick and the `segment.play` frame doesn't silently consume
+    # a session slot.
     session_row.current_segment_id = chosen.id
-    session_row.segment_count = (session_row.segment_count or 0) + 1
     await db.commit()
     await db.refresh(chosen)
     return PickedSegment(segment=chosen, difficulty_level=chosen_level)

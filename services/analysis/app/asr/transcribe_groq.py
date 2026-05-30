@@ -75,15 +75,29 @@ def transcribe(audio_path: str, lang: Literal["ko", "en"], prompt: str | None = 
             req_ms = int((time.monotonic() - t_req) * 1000)
             log.info("[asr.groq.request.done] audio_path=%s http_status=%d took=%dms", audio_path, r.status_code, req_ms)
 
-        words = [
-            WordToken(
-                word=w["word"],
-                start_ms=int(float(w["start"]) * 1000),
-                end_ms=int(float(w["end"]) * 1000),
-                probability=1.0,
+        # Skip entries where Groq omits a timestamp (VAD edge trimming
+        # or punctuation-only segments). A single bad entry used to
+        # raise TypeError from `float(None)` and fail the whole job.
+        words: list[WordToken] = []
+        for w in payload.get("words", []):
+            start = w.get("start")
+            end = w.get("end")
+            text = (w.get("word") or "").strip()
+            if start is None or end is None or not text:
+                continue
+            try:
+                start_ms = int(float(start) * 1000)
+                end_ms = int(float(end) * 1000)
+            except (TypeError, ValueError):
+                continue
+            words.append(
+                WordToken(
+                    word=text,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    probability=1.0,
+                )
             )
-            for w in payload.get("words", [])
-        ]
         result = WordTimestampedTranscript(
             text=payload.get("text", "").strip(),
             words=words,

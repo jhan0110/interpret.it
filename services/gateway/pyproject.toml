@@ -22,6 +22,9 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "websockets>=13.0",
     "botocore>=1.34.0",
+    # Used by the difficulty ladder for fast cosine on 1024-d paraphrase
+    # embeddings — pure-Python is ~50× slower per candidate.
+    "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]
