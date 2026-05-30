@@ -92,6 +92,7 @@ services:
       MINIO_BUCKET: interpretit
       GATEWAY_RPC_URL: http://gateway:8000
       INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
+      MAX_DAILY_USD: ${MAX_DAILY_USD:-5}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -131,6 +132,7 @@ services:
       GATEWAY_RPC_URL: http://gateway:8000
       ARQ_QUEUE_NAME: semantic
       INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
+      MAX_DAILY_USD: ${MAX_DAILY_USD:-5}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -170,6 +172,7 @@ services:
       GATEWAY_RPC_URL: http://gateway:8000
       ARQ_QUEUE_NAME: generation
       INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
+      MAX_DAILY_USD: ${MAX_DAILY_USD:-5}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
