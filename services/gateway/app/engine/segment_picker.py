@@ -211,6 +211,15 @@ async def pick_segment_for_session(
     if session_row.planned_segment_ids:
         return await _pick_from_plan(db, session_row)
 
+    # Planned session whose generation hasn't completed yet. Don't fall
+    # through to the ladder picker — the ladder would search seed segments,
+    # often find nothing in the requested domain, and surface a
+    # "no candidate" error that's actually "not ready yet, try again in a
+    # few seconds." Returning None here triggers the WS layer to send a
+    # specific error code the frontend can interpret as "wait."
+    if session_row.generation_params is not None and session_row.generation_state != "ready":
+        return None
+
     mastery_row = (
         await db.execute(
             select(MasteryScoreRow).where(

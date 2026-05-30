@@ -243,16 +243,35 @@ async def _pick_and_emit_segment(
     sm = sessionmaker_factory()
     async with sm() as db:
         picked = await pick_segment_for_session(db, session_id)
+        if picked is None:
+            # Distinguish "generation still pending" from "truly no candidate"
+            # so the frontend can surface a useful message instead of an
+            # alarming one.
+            session_row = (
+                await db.execute(
+                    select(SessionRow).where(SessionRow.id == session_id)
+                )
+            ).scalar_one_or_none()
     if picked is None:
         if rollback_state is not None:
             await set_state(session_id, rollback_state)
             await _emit_state(
                 ws, session_id, "listening", rollback_state, "picker found no candidate"
             )
+        is_pending_generation = (
+            session_row is not None
+            and session_row.generation_params is not None
+            and session_row.generation_state != "ready"
+        )
+        detail = (
+            "session is still being prepared — wait a few seconds and try again"
+            if is_pending_generation
+            else "no candidate segment available for this learner / domain"
+        )
         await _send_error(
             ws,
             "invalid_state",
-            "no candidate segment available for this learner / domain",
+            detail,
             session_id=session_id,
         )
         return
