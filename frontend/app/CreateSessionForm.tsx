@@ -15,8 +15,7 @@ import { Field, TextInput, TextArea } from "@/components/Field";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { Button } from "@/components/Button";
 
-const GATEWAY_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
+const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "";
 
 type Direction = "en-ko" | "ko-en";
 type MonoLang = "en" | "ko";

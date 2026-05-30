@@ -4,8 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { TopicItem } from "./page";
 
-const GATEWAY_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
+const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "";
 
 const ALL_DOMAINS = [
   { value: "logistics", label: "Logistics" },

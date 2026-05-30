@@ -6,8 +6,7 @@ import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import type { VocabCard } from "./page";
 
-const GATEWAY_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
+const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "";
 
 export function DeckView({
   learnerId,

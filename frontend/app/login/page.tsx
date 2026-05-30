@@ -6,8 +6,7 @@ import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { Field, TextInput } from "@/components/Field";
 
-const GATEWAY_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8000";
+const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "";
 
 const UUID_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
