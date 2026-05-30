@@ -1,3 +1,7 @@
+{
+	debug
+}
+
 {$PUBLIC_DOMAIN} {
 	handle /ws/* {
 		reverse_proxy gateway:8000
