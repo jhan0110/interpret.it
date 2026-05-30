@@ -46,29 +46,29 @@ def upload_attempt(attempt_id: UUID, audio_bytes: bytes) -> str:
 def signed_get_url(key: str, expires_in_s: int = 3600) -> str:
     """Mint a presigned GET URL for `key`.
 
-    `MINIO_PUBLIC_ENDPOINT` (host-reachable, e.g. http://localhost:9000) is
-    used for the URL host; falls back to `MINIO_ENDPOINT` when unset. This
-    matters in docker compose where the gateway talks to MinIO over the
-    internal `minio:9000` hostname but the browser needs `localhost:9000`.
+    The SigV4 signature is computed against the **internal** MinIO endpoint
+    (the host MinIO actually sees), then we rewrite just the URL's scheme
+    + netloc to `MINIO_PUBLIC_ENDPOINT` for the browser. This way Caddy can
+    use its default Host-rewriting behavior (proxy → upstream sends
+    Host: minio:9000) and the signature still validates because MinIO
+    receives the same host it was signed against.
+
+    Signing against the public host instead would require Caddy to
+    preserve the original Host header end-to-end, which proved brittle.
     """
-    public_endpoint = os.getenv("MINIO_PUBLIC_ENDPOINT")
-    client = (
-        boto3.client(
-            "s3",
-            endpoint_url=public_endpoint,
-            aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-            aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-            config=Config(signature_version="s3v4"),
-            region_name=os.getenv("MINIO_REGION", "us-east-1"),
-        )
-        if public_endpoint
-        else _client()
-    )
-    return client.generate_presigned_url(
+    signed = _client().generate_presigned_url(
         "get_object",
         Params={"Bucket": _bucket(), "Key": key},
         ExpiresIn=expires_in_s,
     )
+    public_endpoint = os.getenv("MINIO_PUBLIC_ENDPOINT")
+    if not public_endpoint:
+        return signed
+    from urllib.parse import urlsplit, urlunsplit
+
+    src = urlsplit(signed)
+    pub = urlsplit(public_endpoint)
+    return urlunsplit((pub.scheme, pub.netloc, src.path, src.query, src.fragment))
 
 
 def ensure_bucket() -> None:

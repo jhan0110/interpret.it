@@ -4,17 +4,14 @@
 	}
 
 	# MinIO path-style bucket access for presigned audio URLs. The
-	# bucket name `interpretit` appears in the URL path (MinIO defaults
-	# to path-style). The S3v4 signature on the presigned URL was
-	# computed against PUBLIC_DOMAIN; MinIO validates the signature
-	# using whatever Host header it sees. We hardcode that header to
-	# {$PUBLIC_DOMAIN} (Caddy env-substitution at config load) because
-	# the request-time {host} placeholder doesn't reliably override
-	# reverse_proxy's default of rewriting Host to the upstream.
+	# bucket name `interpretit` appears in the URL path. The gateway
+	# signs URLs against the internal minio:9000 host (see
+	# storage.py::signed_get_url) and rewrites only the public origin
+	# into the URL afterwards. Caddy's default reverse_proxy behaviour
+	# (rewrite Host to upstream's hostport) is exactly what we want
+	# here — MinIO sees Host: minio:9000 which matches the signed host.
 	handle /interpretit/* {
-		reverse_proxy minio:9000 {
-			header_up Host {$PUBLIC_DOMAIN}
-		}
+		reverse_proxy minio:9000
 	}
 
 	@gateway_routes path /sessions* /learners* /internal* /health
