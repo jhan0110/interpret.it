@@ -7,11 +7,13 @@
 	# bucket name `interpretit` appears in the URL path. The gateway
 	# signs URLs against the internal minio:9000 host (see
 	# storage.py::signed_get_url) and rewrites only the public origin
-	# into the URL afterwards. Caddy's default reverse_proxy behaviour
-	# (rewrite Host to upstream's hostport) is exactly what we want
-	# here — MinIO sees Host: minio:9000 which matches the signed host.
+	# into the URL afterwards. Caddy v2.11 reverse_proxy preserves the
+	# client's Host header by default, so we must explicitly override
+	# it to `minio:9000` to match the host MinIO sees in the signature.
 	handle /interpretit/* {
-		reverse_proxy minio:9000
+		reverse_proxy minio:9000 {
+			header_up Host minio:9000
+		}
 	}
 
 	@gateway_routes path /sessions* /learners* /internal* /health
