@@ -142,6 +142,10 @@ export function SessionRunner({ sessionId }: Props) {
     client.on("state.change", (p: WSStateChange["payload"]) => {
       console.log("[WS] state.change", p.from, "->", p.to);
       setState(p.to);
+      // Any error from before this transition is stale — clear it so
+      // the user isn't staring at "session is still being prepared..."
+      // ten minutes after the session actually became ready.
+      setError(null);
     });
     client.on("segment.play", (p: WSSegmentPlay["payload"]) => {
       console.log("[WS] segment.play", p);

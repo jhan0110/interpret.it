@@ -115,6 +115,43 @@ async def _emit_state(
     log.info("[ws.state_change.sent] session=%s from=%s to=%s reason=%s", session_id, from_state, to_state, reason)
 
 
+async def _emit_initial_generation(ws: WebSocket, session_id: UUID) -> None:
+    """If the session has a generation plan in flight, push a synthetic
+    `generation.progress` so a late-joining client can render the
+    preparing overlay. No-op for sessions without `generation_params`
+    or whose generation has already completed.
+    """
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        row = (
+            await db.execute(select(SessionRow).where(SessionRow.id == session_id))
+        ).scalar_one_or_none()
+    if row is None or row.generation_params is None:
+        return
+    state = row.generation_state or "pending"
+    if state == "ready":
+        # Generation already done — frontend can rely on `segment.play`
+        # to drive UI; no overlay needed.
+        return
+    plan_n = len(row.planned_segment_ids or [])
+    # `target` is the eventual phrase count if we know it (from params),
+    # otherwise fall back to 10 (the CLAUDE.md canonical session size).
+    try:
+        target = int((row.generation_params or {}).get("n", 10))
+    except (TypeError, ValueError):
+        target = 10
+    await _send_envelope(
+        ws,
+        "generation.progress",
+        {
+            "session_id": str(session_id),
+            "ready": plan_n,
+            "target": target,
+            "state": state,
+        },
+    )
+
+
 async def _generation_listener(ws: WebSocket, session_id: UUID) -> None:
     """Subscribe to Redis `generation_events`; forward matching frames to `ws`.
 
@@ -413,6 +450,13 @@ async def session_ws(ws: WebSocket, session_id: UUID) -> None:
             return
 
         await _emit_state(ws, session_id, snap.state, snap.state, "connected")
+        # If generation is still in flight, emit a synthetic
+        # `generation.progress` so a late-joining client (page loaded
+        # after the worker already published its progress events) can
+        # render the preparing overlay instead of an empty page.
+        # `_emit_initial_generation` reads the session row directly —
+        # cheap, one query per WS connection.
+        await _emit_initial_generation(ws, session_id)
         listener_task = asyncio.create_task(_generation_listener(ws, session_id))
         analysis_task = asyncio.create_task(_analysis_listener(ws, session_id))
 
