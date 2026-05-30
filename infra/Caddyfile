@@ -1,8 +1,17 @@
 {$PUBLIC_DOMAIN} {
-	tls internal
-
 	handle /ws/* {
 		reverse_proxy gateway:8000
+	}
+
+	# MinIO path-style bucket access for presigned audio URLs. The bucket
+	# name `interpretit` appears in the URL path (MinIO defaults to
+	# path-style). We preserve the original Host header so the S3v4
+	# signature, which was computed against $PUBLIC_DOMAIN, validates
+	# correctly when MinIO checks the request.
+	handle /interpretit/* {
+		reverse_proxy minio:9000 {
+			header_up Host {host}
+		}
 	}
 
 	@gateway_routes path /sessions* /learners* /internal* /health

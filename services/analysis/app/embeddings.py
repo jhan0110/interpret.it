@@ -19,7 +19,7 @@ MODEL_NAME = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
 
 
 def _use_mocks() -> bool:
-    return os.getenv("USE_MOCKS", "1") == "1"
+    return os.getenv("USE_MOCKS", "0") == "1"
 
 
 @lru_cache(maxsize=1)

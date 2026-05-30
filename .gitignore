@@ -18,9 +18,14 @@ node_modules/
 # OS
 .DS_Store
 
-# Env
+# Env / secrets
 .env
 .env.local
+.env.bak
+*.pem
+*.key
 
 # Misc
 *.tmp
+*.pdf
+/backups/
