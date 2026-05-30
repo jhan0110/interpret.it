@@ -83,6 +83,11 @@ export function SessionRunner({ sessionId }: Props) {
   const [audioEnded, setAudioEnded] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When the 1.5s fallback fires before metadata loads, we mark the
+  // audio "given up" so a late onCanPlay / onPlay can suppress
+  // playback. Otherwise the element keeps loading in the background
+  // and starts playing AFTER the UI has already moved past listening.
+  const audioGivenUpRef = useRef<boolean>(false);
   // Track the post-`generation.complete` summary timers so unmount
   // doesn't fire setState on a torn-down component.
   const summaryHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,19 +164,20 @@ export function SessionRunner({ sessionId }: Props) {
       setAudioDurationMs(0);
       setAudioElapsedMs(0);
       setAudioEnded(false);
+      audioGivenUpRef.current = false;
       if (audioFallbackRef.current !== null) clearTimeout(audioFallbackRef.current);
       audioFallbackRef.current = setTimeout(() => {
         setAudioDurationMs((prev) => {
           if (prev === 0) {
             console.log("[audio] fallback: metadata not loaded, proceeding as ended");
-            // Pause the element so the real `onEnded` doesn't fire
-            // afterwards. Without this, audioEnded would flip
-            // false→true (fallback) → false (metadata onLoadedMetadata) →
-            // true (real onEnded), and the WS layer sees a second
-            // recording.begin which the state machine refuses
-            // ("playback.finished not valid from state 'recording'").
+            // Mark this audio as "given up" so any late onCanPlay /
+            // onPlay handler suppresses playback. Without this, the
+            // element kept loading in the background and started
+            // playing AFTER the UI had moved past the listening phase
+            // — audio audible after the progress bar terminated.
+            audioGivenUpRef.current = true;
             const el = audioRef.current;
-            if (el && !el.paused) {
+            if (el) {
               try {
                 el.pause();
               } catch {
@@ -571,23 +577,46 @@ export function SessionRunner({ sessionId }: Props) {
           onLoadedMetadata={() => {
             const duration = (audioRef.current?.duration ?? 0) * 1000;
             console.log("[audio] metadata loaded, duration=", duration);
+            // If we already gave up on this segment's audio (1.5s
+            // fallback fired), do NOT report duration — that would
+            // re-enable audioPhase and the progress bar would replay
+            // alongside late audio.
+            if (audioGivenUpRef.current) {
+              const el = audioRef.current;
+              if (el) {
+                try {
+                  el.pause();
+                } catch {
+                  // ignore
+                }
+              }
+              return;
+            }
             setAudioDurationMs(duration);
-            // Cancel the 1.5s fallback if it hasn't fired yet. If it
-            // ALREADY fired, we leave `audioEnded` as-is and rely on
-            // the pause() that fallback issued to suppress the real
-            // `onEnded`. (Earlier code unconditionally reset
-            // audioEnded=false here, which then let the real onEnded
-            // fire a second `recording.begin` and the state machine
-            // rejected it.)
             if (audioFallbackRef.current !== null) {
               clearTimeout(audioFallbackRef.current);
               audioFallbackRef.current = null;
             }
           }}
+          onPlay={() => {
+            // Suppress late autoplay after the fallback gave up.
+            if (audioGivenUpRef.current) {
+              const el = audioRef.current;
+              if (el) {
+                try {
+                  el.pause();
+                } catch {
+                  // ignore
+                }
+              }
+            }
+          }}
           onTimeUpdate={() => {
+            if (audioGivenUpRef.current) return;
             setAudioElapsedMs((audioRef.current?.currentTime ?? 0) * 1000);
           }}
           onEnded={() => {
+            if (audioGivenUpRef.current) return;
             const currentTime = audioRef.current?.currentTime ?? 0;
             console.log("[audio] ended at", currentTime);
             setAudioEnded(true);
