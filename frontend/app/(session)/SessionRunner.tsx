@@ -636,8 +636,18 @@ export function SessionRunner({ sessionId }: Props) {
 
       <div className="flex gap-3">
         {state === "idle" && (
-          <Button variant="primary" onClick={requestSegment}>
-            Begin
+          <Button
+            variant="primary"
+            onClick={requestSegment}
+            disabled={generating}
+            aria-disabled={generating}
+            title={
+              generating
+                ? "Preparing your training set — wait for it to finish."
+                : undefined
+            }
+          >
+            {generating ? "Preparing…" : "Begin"}
           </Button>
         )}
         {(state === "listening" || state === "feedback") && (
