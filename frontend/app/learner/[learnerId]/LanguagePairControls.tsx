@@ -202,7 +202,16 @@ export function LanguagePairControls({ mastery }: Props) {
             </button>
           </div>
 
-          <LanguagePairSelector value={pair} onChange={setPair} />
+          <div className="flex flex-col gap-2">
+            <LanguagePairSelector value={pair} onChange={setPair} />
+            <p className="text-[10px] leading-relaxed text-ink-faint">
+              Pairs anchor on English while the pipeline is validated.
+              Interpretation between two non-English languages (e.g.
+              KO ↔ ES) is under development and will appear here once
+              the audio + evaluation paths are calibrated for
+              non-English source content.
+            </p>
+          </div>
 
           <div>
             <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wide text-ink-faint">

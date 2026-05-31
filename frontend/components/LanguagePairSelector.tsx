@@ -2,10 +2,19 @@
 
 import { SegmentedControl } from "./SegmentedControl";
 
-/** Unordered language pair (alphabetically normalized). */
+/** Unordered language pair (alphabetically normalized).
+ *
+ * For now only pairs that anchor on English are offered to learners.
+ * Non-English-to-non-English pairs (e.g. KO ↔ ES) are recognised by
+ * the backend (mastery rows / vocab filters accept them) but are not
+ * surfaced in the picker until the pipeline has been validated for
+ * non-English source content.
+ */
 export type LanguagePair = "en-ko" | "en-es" | "ko-es";
 
-export const LANGUAGE_PAIRS: LanguagePair[] = ["en-ko", "en-es", "ko-es"];
+/** Pairs shown in the selector. KO ↔ ES is deliberately excluded —
+ *  see the type docstring above. */
+export const LANGUAGE_PAIRS: LanguagePair[] = ["en-ko", "en-es"];
 
 const PAIR_LABEL: Record<LanguagePair, string> = {
   "en-ko": "EN ↔ KO",
