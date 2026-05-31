@@ -6,9 +6,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID, uuid5, NAMESPACE_URL, uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
+from sqlalchemy.sql import ColumnElement
 
 from app.db import sessionmaker_factory
 from app.models.tables import LearnerRow, LearnerTopicRow, LearnerVocabDeckRow, VocabEntryRow
@@ -18,6 +19,37 @@ from app.vocab.srs import sm2_update
 router = APIRouter(prefix="/learners/{learner_id}/vocab", tags=["vocab"])
 
 VALID_DOMAINS = {"logistics", "diplomacy", "intelligence", "operations", "medical", "cyber"}
+
+# Alphabetically-normalised language pairs accepted by the `?pair=`
+# filter. Kept in sync with frontend/components/LanguagePairSelector.tsx.
+_VALID_PAIRS: dict[str, tuple[str, str]] = {
+    "en-ko": ("en", "ko"),
+    "en-es": ("en", "es"),
+    "ko-es": ("ko", "es"),
+}
+
+
+def _pair_filter(pair: str | None) -> ColumnElement[bool] | None:
+    """Translate `?pair=<en-ko|en-es|ko-es>` into a SQL predicate.
+
+    Filter is unordered — both directions of the pair match (e.g.
+    `en-es` matches `en→es` AND `es→en`). 400 on an unknown pair so
+    operators see typos loudly. `None` returns None (no filtering).
+    """
+    if pair is None:
+        return None
+    pair = pair.lower()
+    langs = _VALID_PAIRS.get(pair)
+    if langs is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown pair {pair!r}; expected one of {list(_VALID_PAIRS)}",
+        )
+    a, b = langs
+    return and_(
+        VocabEntryRow.source_lang.in_(langs),
+        VocabEntryRow.target_lang.in_(langs),
+    )
 
 
 class VocabCard(BaseModel):
@@ -134,23 +166,29 @@ async def remove_topic(learner_id: UUID, domain: str) -> None:
 
 
 @router.get("/due", response_model=list[VocabCard])
-async def get_due_cards(learner_id: UUID, limit: int = 20) -> list[VocabCard]:
+async def get_due_cards(
+    learner_id: UUID,
+    limit: int = 20,
+    pair: str | None = Query(default=None, description="en-ko | en-es | ko-es"),
+) -> list[VocabCard]:
     await _require_learner(learner_id)
+    pair_clause = _pair_filter(pair)
     now = datetime.now(UTC)
     sm = sessionmaker_factory()
     async with sm() as db:
-        rows = (
-            await db.execute(
-                select(LearnerVocabDeckRow, VocabEntryRow)
-                .join(VocabEntryRow, LearnerVocabDeckRow.vocab_entry_id == VocabEntryRow.id)
-                .where(
-                    LearnerVocabDeckRow.learner_id == learner_id,
-                    LearnerVocabDeckRow.next_review_at <= now,
-                )
-                .order_by(LearnerVocabDeckRow.next_review_at.asc())
-                .limit(limit)
+        stmt = (
+            select(LearnerVocabDeckRow, VocabEntryRow)
+            .join(VocabEntryRow, LearnerVocabDeckRow.vocab_entry_id == VocabEntryRow.id)
+            .where(
+                LearnerVocabDeckRow.learner_id == learner_id,
+                LearnerVocabDeckRow.next_review_at <= now,
             )
-        ).all()
+            .order_by(LearnerVocabDeckRow.next_review_at.asc())
+            .limit(limit)
+        )
+        if pair_clause is not None:
+            stmt = stmt.where(pair_clause)
+        rows = (await db.execute(stmt)).all()
     return [_to_card(deck, entry) for deck, entry in rows]
 
 
@@ -194,18 +232,23 @@ async def review_card(learner_id: UUID, deck_id: UUID, body: ReviewRequest) -> V
 
 
 @router.get("/stats", response_model=VocabStats)
-async def get_stats(learner_id: UUID) -> VocabStats:
+async def get_stats(
+    learner_id: UUID,
+    pair: str | None = Query(default=None, description="en-ko | en-es | ko-es"),
+) -> VocabStats:
     await _require_learner(learner_id)
+    pair_clause = _pair_filter(pair)
     now = datetime.now(UTC)
     sm = sessionmaker_factory()
     async with sm() as db:
-        all_rows = (
-            await db.execute(
-                select(LearnerVocabDeckRow, VocabEntryRow)
-                .join(VocabEntryRow, LearnerVocabDeckRow.vocab_entry_id == VocabEntryRow.id)
-                .where(LearnerVocabDeckRow.learner_id == learner_id)
-            )
-        ).all()
+        stmt = (
+            select(LearnerVocabDeckRow, VocabEntryRow)
+            .join(VocabEntryRow, LearnerVocabDeckRow.vocab_entry_id == VocabEntryRow.id)
+            .where(LearnerVocabDeckRow.learner_id == learner_id)
+        )
+        if pair_clause is not None:
+            stmt = stmt.where(pair_clause)
+        all_rows = (await db.execute(stmt)).all()
 
     total = len(all_rows)
     due_now = sum(1 for deck, _ in all_rows if deck.next_review_at <= now)

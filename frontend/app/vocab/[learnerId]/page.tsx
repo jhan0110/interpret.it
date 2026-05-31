@@ -1,7 +1,6 @@
-import { Card } from "@/components/Card";
-import { DeckView } from "./DeckView";
-import { TopicSelector } from "./TopicSelector";
+import { VocabPageClient } from "./VocabPageClient";
 
+// Shared shapes used by VocabPageClient and DeckView.
 export interface VocabCard {
   deck_id: string;
   entry_id: string;
@@ -31,90 +30,15 @@ export interface TopicItem {
   added_at: string;
 }
 
-const GATEWAY_URL = process.env.GATEWAY_URL ?? "http://localhost:8000";
-
-async function fetchDue(learnerId: string): Promise<VocabCard[]> {
-  const res = await fetch(
-    `${GATEWAY_URL}/learners/${learnerId}/vocab/due?limit=20`,
-    { cache: "no-store" },
-  );
-  if (!res.ok) return [];
-  return (await res.json()) as VocabCard[];
-}
-
-async function fetchStats(learnerId: string): Promise<VocabStats | null> {
-  const res = await fetch(
-    `${GATEWAY_URL}/learners/${learnerId}/vocab/stats`,
-    { cache: "no-store" },
-  );
-  if (!res.ok) return null;
-  return (await res.json()) as VocabStats;
-}
-
-async function fetchTopics(learnerId: string): Promise<TopicItem[]> {
-  const res = await fetch(
-    `${GATEWAY_URL}/learners/${learnerId}/vocab/topics`,
-    { cache: "no-store" },
-  );
-  if (!res.ok) return [];
-  return (await res.json()) as TopicItem[];
-}
-
+// The vocab page is fully client-rendered because the deck is keyed
+// by the home-page language pair, which lives in localStorage. The
+// page subscribes to the `interpretit:pair-changed` event so a pair
+// switch in the home-page modal refreshes the deck in place.
 export default async function VocabPage({
   params,
 }: {
   params: Promise<{ learnerId: string }>;
 }) {
   const { learnerId } = await params;
-  const [dueCards, stats, topics] = await Promise.all([
-    fetchDue(learnerId),
-    fetchStats(learnerId),
-    fetchTopics(learnerId),
-  ]);
-
-  return (
-    <div className="flex flex-col gap-8">
-      {stats && (
-        <div className="grid grid-cols-4 gap-3">
-          <StatBox label="Total cards" value={stats.total} />
-          <StatBox label="Due now" value={stats.due_now} variant="highlight" />
-          <StatBox label="Knowledge gaps" value={stats.knowledge_gaps} variant="amber" />
-          <StatBox label="Memory gaps" value={stats.memory_gaps} />
-        </div>
-      )}
-
-      <TopicSelector learnerId={learnerId} activeTopics={topics} />
-
-      {dueCards.length > 0 ? (
-        <DeckView learnerId={learnerId} initialCards={dueCards} />
-      ) : (
-        <p className="text-sm text-ink-faint">
-          No cards due right now. Add a topic above or come back later.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function StatBox({
-  label,
-  value,
-  variant,
-}: {
-  label: string;
-  value: number;
-  variant?: "highlight" | "amber";
-}) {
-  const valueClass =
-    variant === "highlight"
-      ? "text-2xl font-semibold text-accent"
-      : variant === "amber"
-        ? "text-2xl font-semibold text-warning"
-        : "text-2xl font-semibold text-ink";
-  return (
-    <Card>
-      <p className={valueClass}>{value}</p>
-      <p className="mt-1 text-[10px] uppercase tracking-wider text-ink-faint">{label}</p>
-    </Card>
-  );
+  return <VocabPageClient learnerId={learnerId} />;
 }
