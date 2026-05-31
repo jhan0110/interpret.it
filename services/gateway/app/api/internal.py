@@ -300,12 +300,18 @@ async def _close_if_ready(attempt_id: UUID) -> None:
 
         # Lock the mastery row too — two attempts closing back-to-back
         # otherwise see the same baseline and one update is lost.
+        # Mastery is direction-specific (PK extended in migration 0007),
+        # so all four key columns must match.
+        source_lang = session_row.source_lang
+        target_lang = session_row.target_lang
         ms = (
             await db.execute(
                 select(MasteryScoreRow)
                 .where(
                     MasteryScoreRow.learner_id == row.learner_id,
                     MasteryScoreRow.domain == domain,
+                    MasteryScoreRow.source_lang == source_lang,
+                    MasteryScoreRow.target_lang == target_lang,
                 )
                 .with_for_update(of=MasteryScoreRow)
             )
@@ -314,6 +320,8 @@ async def _close_if_ready(attempt_id: UUID) -> None:
             ms = MasteryScoreRow(
                 learner_id=row.learner_id,
                 domain=domain,
+                source_lang=source_lang,
+                target_lang=target_lang,
                 mastery=0.5,
                 attempts_count=0,
                 last_attempt_at=datetime.now(UTC),

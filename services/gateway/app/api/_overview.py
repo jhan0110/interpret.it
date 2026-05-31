@@ -88,6 +88,8 @@ async def load_mastery_scores(
                 {
                     "learner_id": r.learner_id,
                     "domain": r.domain,
+                    "source_lang": r.source_lang,
+                    "target_lang": r.target_lang,
                     "mastery": r.mastery,
                     "tier": tier_val,
                     "tier_name": prog.tier_name,

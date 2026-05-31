@@ -179,6 +179,12 @@ class MasteryScoreRow(Base):
         primary_key=True,
     )
     domain: Mapped[str] = mapped_column(String, primary_key=True)
+    # Direction-specific PK extension (see migration 0007). Mastery on
+    # en→ko is independent from ko→en because interpretation skill is
+    # asymmetric in practice. Frontend groups by unordered pair for
+    # display but the row is still keyed by direction.
+    source_lang: Mapped[str] = mapped_column(String, primary_key=True)
+    target_lang: Mapped[str] = mapped_column(String, primary_key=True)
     mastery: Mapped[float] = mapped_column(nullable=False, default=0.5)
     tier: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, default=0, server_default="0"
@@ -190,6 +196,12 @@ class MasteryScoreRow(Base):
 
     __table_args__ = (
         CheckConstraint("mastery BETWEEN 0 AND 1", name="mastery_scores_mastery_chk"),
+        CheckConstraint(
+            "source_lang IN ('ko','en','es')", name="mastery_scores_src_lang_chk"
+        ),
+        CheckConstraint(
+            "target_lang IN ('ko','en','es')", name="mastery_scores_tgt_lang_chk"
+        ),
     )
 
 

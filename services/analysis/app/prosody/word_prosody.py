@@ -35,7 +35,7 @@ def _count_fillers(words: list[WordToken], lang: str) -> int:
 def compute_prosody_from_words(
     words: list[WordToken],
     audio_duration_s: float,
-    lang: Literal["ko", "en"],
+    lang: Literal["ko", "en", "es"],
     attempt_id: UUID,
     feedback_audio_path: str,
     started_at: datetime,

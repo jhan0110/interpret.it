@@ -258,6 +258,8 @@ async def pick_segment_for_session(
             select(MasteryScoreRow).where(
                 MasteryScoreRow.learner_id == session_row.learner_id,
                 MasteryScoreRow.domain == session_row.domain,
+                MasteryScoreRow.source_lang == session_row.source_lang,
+                MasteryScoreRow.target_lang == session_row.target_lang,
             )
         )
     ).scalar_one_or_none()

@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import LearnerTopicRow, LearnerVocabDeckRow, VocabEntryRow
-from app.vocab.seeds import TOPIC_SEEDS, seed_uuid
+from app.vocab.seeds import seed_set_for_direction, seed_uuid
 
 
 async def seed_topic_for_learner(
@@ -29,15 +29,32 @@ async def seed_topic_for_learner(
     """Idempotently seed vocab_entries + learner_vocab_deck for a domain.
 
     Returns the count of NEW deck rows added (0 if the domain was
-    already seeded for this learner).
+    already seeded for this learner). When the requested direction has
+    no seed set (e.g. ko→es today), only the learner_topic row is
+    recorded — vocab will accumulate via extraction.
     """
-    seeds = TOPIC_SEEDS.get(domain, [])
+    seed_dict, needs_swap = seed_set_for_direction(source_lang, target_lang)
+    seeds = seed_dict.get(domain, [])
     if not seeds:
         # Even when the seed pool is empty, the learner_topic row should
         # be recorded so the home hub knows about the chosen domain.
         await _topic_upsert(db, learner_id, domain)
         await db.commit()
         return 0
+
+    # If the canonical seed set is reversed relative to the requested
+    # direction, swap term ↔ definition for each entry so `term` is in
+    # the learner's source language. `seed_uuid` is computed on the
+    # POST-SWAP `term` so the UUID is stable per direction.
+    if needs_swap:
+        seeds = [
+            {
+                "term": item["definition"],
+                "definition": item["term"],
+                "register": item["register"],
+            }
+            for item in seeds
+        ]
 
     # Build (entry_id, item) pairs once.
     entries = [(seed_uuid(domain, source_lang, item["term"]), item) for item in seeds]

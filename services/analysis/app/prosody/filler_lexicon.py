@@ -12,7 +12,13 @@ appear with very high frequency in non-disfluent speech, so counting
 them as fillers inflated the cognitive-load classifier toward
 "overloaded" for routinely fluent learners.
 
-If a Korean linguist re-evaluates the lexicon, expand here with a
+The Spanish lexicon follows the same conservative discipline. Common
+markers like `como` (also the comparative "like") and `vale`
+(affirmation, not stalling) are excluded because they can't be
+disambiguated without context-aware POS tagging. Expand only with
+linguist sign-off; document the reasoning per added entry.
+
+If a linguist re-evaluates either lexicon, expand here with a
 clear comment on what specifically tipped the choice.
 """
 
@@ -52,6 +58,21 @@ FILLER_LEXICON: dict[str, frozenset[str]] = {
             "okay",
             "er",
             "ah",
+        }
+    ),
+    "es": frozenset(
+        {
+            # Pure hesitation vocalisations.
+            "eh",
+            "este",  # "this" but overwhelmingly stalling in interpretation contexts
+            # Discourse markers used as stalling tokens.
+            "pues",  # "well"
+            "bueno",  # "good/well" — high-confidence filler in non-confirming positions
+            "o sea",  # "I mean / that is"
+            # NOT INCLUDED (would over-flag; revisit with linguist sign-off):
+            #   "como"  — also the comparative "like"; can't disambiguate without context
+            #   "vale"  — affirmation; not unambiguously a filler
+            #   "digamos" — "let's say"; meaningful framing in formal Spanish
         }
     ),
 }

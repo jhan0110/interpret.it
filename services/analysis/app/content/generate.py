@@ -19,14 +19,38 @@ from app.llm.templates import render_template, run_template
 
 log = logging.getLogger(__name__)
 
-Direction = Literal["en-ko", "ko-en"]
+Direction = Literal[
+    "en-ko", "ko-en",
+    "en-es", "es-en",
+    "ko-es", "es-ko",
+]
+
+_LANG_LONG_NAMES: dict[str, str] = {
+    "en": "English",
+    "ko": "Korean",
+    "es": "Spanish",
+}
+
+
+def _direction_label(direction: str) -> str:
+    src, tgt = direction.split("-")
+    return f"{_LANG_LONG_NAMES.get(src, src)} → {_LANG_LONG_NAMES.get(tgt, tgt)}"
+
+
+def _source_lang_long(direction: str) -> str:
+    src = direction.split("-")[0]
+    return _LANG_LONG_NAMES.get(src, src)
+
+
+# Backward-compat dicts so any external import keeps working. New code
+# should use the helpers above.
 _DIRECTION_LABEL: dict[Direction, str] = {
-    "en-ko": "English → Korean",
-    "ko-en": "Korean → English",
+    d: _direction_label(d)
+    for d in ("en-ko", "ko-en", "en-es", "es-en", "ko-es", "es-ko")
 }
 _SOURCE_LANG_LONG: dict[Direction, str] = {
-    "en-ko": "English",
-    "ko-en": "Korean",
+    d: _source_lang_long(d)
+    for d in ("en-ko", "ko-en", "en-es", "es-en", "ko-es", "es-ko")
 }
 
 

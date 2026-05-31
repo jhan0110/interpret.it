@@ -1,6 +1,7 @@
 import { Card } from "@/components/Card";
 import { FEATURES } from "./features";
 import { FeatureCard } from "./FeatureCard";
+import { LanguagePairSection } from "./LanguagePairSection";
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? "http://localhost:8000";
 
@@ -16,6 +17,8 @@ async function safeFetch<T>(url: string): Promise<T | null> {
 
 interface MasteryScore {
   domain: string;
+  source_lang: "en" | "ko" | "es";
+  target_lang: "en" | "ko" | "es";
   mastery: number;
   tier: number;
   tier_name: string;
@@ -79,36 +82,6 @@ function MinutesTile({ seconds }: { seconds: number }) {
         that&apos;s {flavor}
       </p>
     </Card>
-  );
-}
-
-function MasteryRow({ score }: { score: MasteryScore }) {
-  const pct = Math.round((score.progress ?? 0) * 100);
-  const atMaster = score.next_tier_name === null;
-  return (
-    <div className="flex flex-col gap-1 border-b border-accent pb-2 last:border-0 last:pb-0">
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium uppercase tracking-wider text-ink-soft text-xs">
-          {score.domain}
-        </span>
-        <span className="font-semibold uppercase tracking-wider text-accent text-xs">
-          {score.tier_name}
-        </span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-[1px] bg-paper-tint">
-        <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="flex items-center justify-between text-[10px] text-ink-faint">
-        <span>{score.attempts_count} attempts</span>
-        {atMaster ? (
-          <span>Master tier reached</span>
-        ) : (
-          <span>
-            {pct}% to {score.next_tier_name}
-          </span>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -202,6 +175,8 @@ export default async function LearnerHome({
         <p className="mt-1 text-sm text-ink-soft">Pick up where you left off.</p>
       </section>
 
+      <LanguagePairSection mastery={mastery} />
+
       <section>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {FEATURES.map((f) => {
@@ -227,23 +202,6 @@ export default async function LearnerHome({
         <div className="grid grid-cols-2 gap-3">
           <StreakTile days={overview?.streak_days ?? 0} />
           <MinutesTile seconds={overview?.total_seconds_interpreted ?? 0} />
-        </div>
-
-        <div className="mt-6">
-          <p className="mb-3 text-[10px] uppercase tracking-wide text-ink-faint">
-            Mastery by domain
-          </p>
-          {mastery.length === 0 ? (
-            <p className="text-sm text-ink-soft">
-              No attempts yet &mdash; let&apos;s change that.
-            </p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {mastery.map((m) => (
-                <MasteryRow key={m.domain} score={m} />
-              ))}
-            </div>
-          )}
         </div>
       </section>
 

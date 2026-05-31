@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   GenerationParams,
@@ -8,30 +8,45 @@ import type {
   PostSessionResponse,
   SessionMode,
 } from "@/lib/contracts";
-import { LanguageSwitch } from "@/components/LanguageSwitch";
 import { DifficultySlider } from "@/components/DifficultySlider";
-import { DirectionSwitch } from "@/components/DirectionSwitch";
 import { Field, TextInput, TextArea } from "@/components/Field";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { Button } from "@/components/Button";
+import {
+  LanguagePair,
+  LANGUAGE_PAIRS,
+  langsForPair,
+} from "@/components/LanguagePairSelector";
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "";
 
-type Direction = "en-ko" | "ko-en";
-type MonoLang = "en" | "ko";
+type Lang = "en" | "ko" | "es";
+type DirectionTuple = { source_lang: Lang; target_lang: Lang };
 
-const DIRECTIONS: Record<
-  Direction,
-  { source_lang: "en" | "ko"; target_lang: "en" | "ko"; label: string }
-> = {
-  "en-ko": { source_lang: "en", target_lang: "ko", label: "English → Korean" },
-  "ko-en": { source_lang: "ko", target_lang: "en", label: "Korean → English" },
-};
-
-const MONO_LANGS: Record<MonoLang, string> = {
+const LANG_LONG: Record<Lang, string> = {
   en: "English",
   ko: "Korean",
+  es: "Spanish",
 };
+
+const PAIR_STORAGE_KEY = "interpretit:language_pair";
+const DEFAULT_PAIR: LanguagePair = "en-ko";
+
+function directionLabel(d: DirectionTuple): string {
+  return `${LANG_LONG[d.source_lang]} → ${LANG_LONG[d.target_lang]}`;
+}
+
+function directionKey(d: DirectionTuple): string {
+  return `${d.source_lang}-${d.target_lang}`;
+}
+
+function directionsForPair(pair: LanguagePair): DirectionTuple[] {
+  const [a, b] = langsForPair(pair);
+  return [
+    { source_lang: a as Lang, target_lang: b as Lang },
+    { source_lang: b as Lang, target_lang: a as Lang },
+  ];
+}
 
 const TOPICS = [
   { value: "logistics", label: "Logistics" },
@@ -70,8 +85,28 @@ export function CreateSessionForm({
   const router = useRouter();
   const isMemorization = mode === "memorization";
   const [learnerId, setLearnerId] = useState(presetLearnerId ?? "");
-  const [direction, setDirection] = useState<Direction>("en-ko");
-  const [language, setLanguage] = useState<MonoLang>("en");
+  // Pair comes from localStorage (home-page selector); fall back to
+  // EN↔KO. Direction / language within the pair is form-state.
+  const [pair, setPair] = useState<LanguagePair>(DEFAULT_PAIR);
+  const [direction, setDirection] = useState<DirectionTuple>({
+    source_lang: "en",
+    target_lang: "ko",
+  });
+  const [monoLang, setMonoLang] = useState<Lang>("en");
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(PAIR_STORAGE_KEY);
+      if (stored && LANGUAGE_PAIRS.includes(stored as LanguagePair)) {
+        const p = stored as LanguagePair;
+        setPair(p);
+        const dirs = directionsForPair(p);
+        setDirection(dirs[0]);
+        setMonoLang(dirs[0].source_lang);
+      }
+    } catch {
+      // localStorage unavailable — keep defaults
+    }
+  }, []);
   const [topics, setTopics] = useState<string[]>(["logistics"]);
   const [userLevel, setUserLevel] =
     useState<GenerationParams["user_level"]>(3);
@@ -98,8 +133,8 @@ export function CreateSessionForm({
     }
     setSubmitting(true);
     const { source_lang, target_lang } = isMemorization
-      ? { source_lang: language, target_lang: language }
-      : DIRECTIONS[direction];
+      ? { source_lang: monoLang, target_lang: monoLang }
+      : direction;
     const body: PostSessionRequest = {
       learner_id: learnerId.trim(),
       domain: topics[0],
@@ -152,15 +187,40 @@ export function CreateSessionForm({
       {isMemorization ? (
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium text-ink">Language</span>
-          <LanguageSwitch value={language} onChange={setLanguage} />
+          <SegmentedControl<Lang>
+            value={monoLang}
+            onChange={setMonoLang}
+            ariaLabel="Language"
+            options={langsForPair(pair).map((l) => ({
+              value: l as Lang,
+              label: LANG_LONG[l as Lang],
+            }))}
+          />
           <p className="text-xs text-ink-faint">
-            You will hear and recall in the same language.
+            You will hear and recall in the same language. Change pair on the
+            home page.
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium text-ink">Direction</span>
-          <DirectionSwitch value={direction} onChange={setDirection} />
+          <SegmentedControl<string>
+            value={directionKey(direction)}
+            onChange={(next) => {
+              const found = directionsForPair(pair).find(
+                (d) => directionKey(d) === next,
+              );
+              if (found) setDirection(found);
+            }}
+            ariaLabel="Direction"
+            options={directionsForPair(pair).map((d) => ({
+              value: directionKey(d),
+              label: directionLabel(d),
+            }))}
+          />
+          <p className="text-xs text-ink-faint">
+            Pair: {pair.toUpperCase()}. Change on the home page.
+          </p>
         </div>
       )}
 

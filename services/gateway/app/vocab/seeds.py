@@ -205,20 +205,83 @@ TOPIC_SEEDS: dict[str, list[dict]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# EN ↔ ES seed set
+# ---------------------------------------------------------------------------
+# Populated by `scripts/seed_es_vocab.py` (one-shot Claude generator).
+# Until that runs and commits the data back here, EN_ES_TOPIC_SEEDS is
+# empty and the seeder falls back to extraction-only for the en↔es pair.
+# Shape mirrors TOPIC_SEEDS: term is the English form, definition is
+# the Spanish translation, register matches the source domain.
+
+EN_ES_TOPIC_SEEDS: dict[str, list[dict]] = {
+    # Filled by scripts/seed_es_vocab.py — see operator checklist in
+    # the merge commit.
+}
+
+
+# ---------------------------------------------------------------------------
+# Direction dispatcher
+# ---------------------------------------------------------------------------
+# `seed_topic_for_learner` consults this map to pick the right seed
+# set for the (source_lang, target_lang) of the learner's session.
+# Reverse direction (e.g. ko→en, es→en) is handled by callers swapping
+# `term` and `definition` at lookup time; no duplicate data needed.
+
+_SEED_SETS: dict[tuple[str, str], dict[str, list[dict]]] = {
+    ("en", "ko"): TOPIC_SEEDS,
+    ("en", "es"): EN_ES_TOPIC_SEEDS,
+}
+
+
+def seed_set_for_direction(
+    source_lang: str, target_lang: str
+) -> tuple[dict[str, list[dict]], bool]:
+    """Resolve the (seed dict, needs_swap) tuple for a direction.
+
+    Returns the dict whose entries have `term` in the canonical source
+    language and `definition` in the target. `needs_swap` is True when
+    the caller is asking for the REVERSE of the canonical seed direction
+    (e.g. asking for ko→en when only en→ko is seeded) — the caller
+    should treat `term` as the target and `definition` as the source.
+
+    Returns `({}, False)` if no seed set exists for this direction; the
+    learner will fall back to extraction-based vocab discovery.
+    """
+    canonical = _SEED_SETS.get((source_lang, target_lang))
+    if canonical is not None:
+        return canonical, False
+    reverse = _SEED_SETS.get((target_lang, source_lang))
+    if reverse is not None:
+        return reverse, True
+    return {}, False
+
+
 def seed_uuid(domain: str, source_lang: str, term: str) -> UUID:
     return uuid5(NAMESPACE_URL, f"vocab_seed:{domain}:{source_lang}:{term}")
 
 
 def domain_asr_prompt(domain: str, target_lang: str) -> str:
-    """Return a comma-joined hint string of domain vocabulary for Whisper priming.
+    """Return a comma-joined hint string of domain vocabulary for Whisper
+    priming.
 
-    When *target_lang* is ``"ko"`` the Korean definitions are used; for ``"en"``
-    (or any other value) the English terms are used.  An unknown *domain* returns
-    an empty string.
+    Uses whichever seed set has entries for the requested target. For
+    `ko` the Korean definitions of TOPIC_SEEDS are used; for `es` the
+    Spanish definitions of EN_ES_TOPIC_SEEDS (when populated); the
+    fallback is the canonical English terms in TOPIC_SEEDS. Unknown
+    domains return an empty string.
     """
-    entries = TOPIC_SEEDS.get(domain)
-    if not entries:
-        return ""
     if target_lang == "ko":
-        return ", ".join(entry["definition"] for entry in entries)
-    return ", ".join(entry["term"] for entry in entries)
+        entries = TOPIC_SEEDS.get(domain) or []
+        return ", ".join(e["definition"] for e in entries)
+    if target_lang == "es":
+        entries = EN_ES_TOPIC_SEEDS.get(domain) or []
+        if entries:
+            return ", ".join(e["definition"] for e in entries)
+        # Fallback to English terms — gives Whisper SOME priming hint
+        # for the es pair before the seed generator has run.
+        entries = TOPIC_SEEDS.get(domain) or []
+        return ", ".join(e["term"] for e in entries)
+    # Default (en or other): the English terms from TOPIC_SEEDS.
+    entries = TOPIC_SEEDS.get(domain) or []
+    return ", ".join(e["term"] for e in entries)

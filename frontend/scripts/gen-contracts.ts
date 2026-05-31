@@ -34,7 +34,7 @@ const schema = JSON.parse(stripped);
 const SESSION_STATES =
   '"idle" | "listening" | "recording" | "analyzing" | "feedback" | "next_segment" | "complete"';
 const REGISTER = '"formal-military" | "formal-diplomatic" | "informal"';
-const LANG = '"ko" | "en"';
+const LANG = '"ko" | "en" | "es"';
 const HEALTH_STATUS = '"ok" | "degraded" | "down"';
 const COGNITIVE_LOAD = '"low" | "moderate" | "high" | "overloaded"';
 const ERROR_TYPE =
@@ -197,6 +197,8 @@ export interface Attempt {
 export interface MasteryScore {
   learner_id: string;
   domain: string;
+  source_lang: ${LANG};
+  target_lang: ${LANG};
   mastery: number;
   tier: number;
   tier_name: string;

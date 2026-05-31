@@ -11,7 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
-Lang = Literal["ko", "en"]
+Lang = Literal["ko", "en", "es"]
 Register = Literal["formal-military", "formal-diplomatic", "informal"]
 CognitiveLoad = Literal["low", "moderate", "high", "overloaded"]
 Severity = Literal["minor", "moderate", "critical"]
@@ -202,6 +202,12 @@ class Attempt(_Strict):
 class MasteryScore(_Strict):
     learner_id: UUID
     domain: str
+    # PK extension: mastery is tracked per (learner, domain, direction).
+    # See migration 0007 — the row's PK is (learner_id, domain,
+    # source_lang, target_lang). Interpretation skill is direction-
+    # specific in practice (en→ko ≠ ko→en).
+    source_lang: Lang
+    target_lang: Lang
     mastery: Unit
     tier: int = Field(default=0, ge=0, le=5)
     tier_name: str = "Initiate"

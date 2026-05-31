@@ -31,7 +31,7 @@
       "Session":                "Persistent session record.",
       "Segment":                "Reusable source-language unit available for training.",
       "Attempt":                "One user interpretation of one segment.",
-      "MasteryScore":           "Per-learner, per-domain mastery state.",
+      "MasteryScore":           "Per-learner, per-(domain × direction) mastery state.",
       "WSEnvelope":             "Outer JSON frame envelope: {type, ts, payload}.",
       "WSMessage.*":            "Concrete WS control / result payloads (see below)."
     }
@@ -66,8 +66,8 @@
     "learner_id":       "uuid",
     "audio_path":       "string (MinIO key)",
     "source_text":      "string",
-    "source_lang":      "ko | en",
-    "target_lang":      "ko | en",
+    "source_lang":      "ko | en | es",
+    "target_lang":      "ko | en | es",
     "register":         "formal-military | formal-diplomatic | informal",
     "domain":           "string",                  // e.g. "logistics", "diplomatic", "intel-brief"
     "difficulty_level": "integer 1-10",
@@ -151,7 +151,7 @@
   "Learner": {
     "id":           "uuid",
     "display_name": "string",
-    "primary_lang": "ko | en",
+    "primary_lang": "ko | en | es",
     "created_at":   "iso8601"
   },
 
@@ -161,8 +161,8 @@
     "mode":         "interpretation | memorization",  // selects runner + evaluator
     "state":        "idle | listening | recording | analyzing | feedback | next_segment | complete",
     "domain":       "string",
-    "target_lang":  "ko | en",
-    "source_lang":  "ko | en",
+    "target_lang":  "ko | en | es",
+    "source_lang":  "ko | en | es",
     "started_at":   "iso8601",
     "completed_at": "iso8601 | null",
     "segment_count":"integer",
@@ -173,8 +173,8 @@
   "Segment": {
     "id":               "uuid",
     "source_text":      "string",                  // stored for review only; never sent during (session)
-    "source_lang":      "ko | en",
-    "target_lang":      "ko | en",
+    "source_lang":      "ko | en | es",
+    "target_lang":      "ko | en | es",
     "register":         "formal-military | formal-diplomatic | informal",
     "domain":           "string",
     "difficulty_level": "integer 1-10",
@@ -199,6 +199,8 @@
   "MasteryScore": {
     "learner_id":      "uuid",
     "domain":          "string",
+    "source_lang":     "ko | en | es",                // PK extension: mastery is direction-specific
+    "target_lang":     "ko | en | es",
     "mastery":         "float 0-1",                   // legacy EMA scalar; kept for picker fallback
     "tier":            "integer 0-5",                 // 0=Initiate, 1=Apprentice, ..., 5=Master
     "tier_name":       "string",                      // human label of the current tier
@@ -216,8 +218,8 @@
   "REST.PostSessionRequest": {
     "learner_id":  "uuid",
     "domain":      "string",
-    "source_lang": "ko | en",
-    "target_lang": "ko | en",
+    "source_lang": "ko | en | es",
+    "target_lang": "ko | en | es",
     "mode":        "interpretation | memorization",  // defaults to "interpretation" if omitted
     "generation":  "REST.GenerationParams | null"
   },
