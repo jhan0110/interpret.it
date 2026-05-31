@@ -20,9 +20,12 @@ from app.llm.templates import render_template, run_template
 log = logging.getLogger(__name__)
 
 Direction = Literal[
+    # Cross-language directions (interpretation mode).
     "en-ko", "ko-en",
     "en-es", "es-en",
     "ko-es", "es-ko",
+    # Same-language directions (memorization mode — source == target).
+    "en-en", "ko-ko", "es-es",
 ]
 
 _LANG_LONG_NAMES: dict[str, str] = {
@@ -34,6 +37,10 @@ _LANG_LONG_NAMES: dict[str, str] = {
 
 def _direction_label(direction: str) -> str:
     src, tgt = direction.split("-")
+    if src == tgt:
+        # Memorization mode — render as just the single language so
+        # the generation prompt doesn't read like "English → English".
+        return _LANG_LONG_NAMES.get(src, src)
     return f"{_LANG_LONG_NAMES.get(src, src)} → {_LANG_LONG_NAMES.get(tgt, tgt)}"
 
 
@@ -43,15 +50,16 @@ def _source_lang_long(direction: str) -> str:
 
 
 # Backward-compat dicts so any external import keeps working. New code
-# should use the helpers above.
-_DIRECTION_LABEL: dict[Direction, str] = {
-    d: _direction_label(d)
-    for d in ("en-ko", "ko-en", "en-es", "es-en", "ko-es", "es-ko")
-}
-_SOURCE_LANG_LONG: dict[Direction, str] = {
-    d: _source_lang_long(d)
-    for d in ("en-ko", "ko-en", "en-es", "es-en", "ko-es", "es-ko")
-}
+# should use the helpers above. List includes the same-language
+# directions used by memorization mode (en-en, ko-ko, es-es).
+_ALL_DIRECTIONS: tuple[str, ...] = (
+    "en-ko", "ko-en",
+    "en-es", "es-en",
+    "ko-es", "es-ko",
+    "en-en", "ko-ko", "es-es",
+)
+_DIRECTION_LABEL: dict[str, str] = {d: _direction_label(d) for d in _ALL_DIRECTIONS}
+_SOURCE_LANG_LONG: dict[str, str] = {d: _source_lang_long(d) for d in _ALL_DIRECTIONS}
 
 
 @dataclass(frozen=True)

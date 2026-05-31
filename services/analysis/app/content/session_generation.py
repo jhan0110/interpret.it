@@ -31,6 +31,7 @@ from app.content.generate import GenerateParams, generate_segments
 from app.embeddings import embed_texts
 from app.rpc.gateway_client import (
     publish_generation_event,
+    push_generation_failed,
     push_segment_insert,
     push_session_plan,
 )
@@ -168,6 +169,14 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
         return {"ok": True, "count": len(final_ids)}
     except Exception as exc:  # noqa: BLE001
         log.exception("generation failed session=%s: %s", session_id, exc)
+        # Two-pronged failure signal:
+        # 1. Publish a WS event so any currently-connected client
+        #    sees the overlay flip from "pending" to "failed".
+        # 2. POST to the gateway so the DB row flips
+        #    generation_state→"failed". Without (2), a page reload
+        #    after the failure would show the preparing overlay
+        #    forever (the gateway re-emits "pending" on WS connect
+        #    based on the stale DB value).
         await publish_generation_event(
             {
                 "type": "progress",
@@ -177,6 +186,7 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
                 "state": "failed",
             }
         )
+        await push_generation_failed(session_id, str(exc))
         return {"ok": False, "error": str(exc)}
 
 

@@ -164,6 +164,31 @@ async def push_session_plan(
     r.raise_for_status()
 
 
+async def push_generation_failed(session_id: str, error: str) -> None:
+    """Tell the gateway that a generation job failed so it can flip
+    `sessions.generation_state` from 'pending' to 'failed'.
+
+    Best-effort: a failure here doesn't bubble up because the worker
+    is already in its exception path. Without this call the row would
+    stay 'pending' indefinitely and the frontend overlay would loop
+    forever after any page reload.
+    """
+    try:
+        r = await _http().post(
+            f"{_GATEWAY_RPC_URL}/internal/generation_failed",
+            json={"session_id": session_id, "error": error[:500]},
+            headers=_rpc_headers(),
+            timeout=5.0,
+        )
+        r.raise_for_status()
+    except httpx.HTTPError:
+        log.exception(
+            "[rpc.push_generation_failed.failed] session=%s; "
+            "session row will stay generation_state=pending",
+            session_id,
+        )
+
+
 GENERATION_CHANNEL = "generation_events"
 
 

@@ -228,6 +228,44 @@ async def post_session_plan(body: SessionPlanRequest) -> SessionPlanResponse:
     )
 
 
+class GenerationFailedRequest(BaseModel):
+    session_id: UUID
+    error: str | None = None
+
+
+@router.post(
+    "/generation_failed",
+    status_code=204,
+    dependencies=[Depends(verify_internal_token)],
+)
+async def post_generation_failed(body: GenerationFailedRequest) -> None:
+    """Mark a session's generation as failed in the DB.
+
+    Called by the arq generation worker when `run_generation` raises.
+    Without this, a session that crashes mid-generation stays
+    `generation_state="pending"` forever and the frontend's
+    preparing-overlay loops indefinitely on every reconnect.
+    """
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        row = (
+            await db.execute(select(SessionRow).where(SessionRow.id == body.session_id))
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        # Only transition pending → failed. If the row was already
+        # `ready` (a race we don't expect but easy to guard against),
+        # leave it as-is.
+        if (row.generation_state or "pending") == "pending":
+            row.generation_state = "failed"
+            await db.commit()
+            log.warning(
+                "[gw.generation_failed] session=%s err=%r",
+                body.session_id,
+                body.error,
+            )
+
+
 async def _close_if_ready(attempt_id: UUID) -> None:
     """Promote attempt → closed_at + update mastery when both results land.
 
