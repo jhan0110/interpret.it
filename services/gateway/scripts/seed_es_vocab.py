@@ -201,30 +201,59 @@ def _format_block(seeds: dict[str, list[dict]]) -> str:
 
 def _splice_into_seeds_file(formatted: str) -> Path:
     """Replace the placeholder EN_ES_TOPIC_SEEDS dict in seeds.py with
-    the freshly-generated literal. Returns the path written."""
-    # When running inside the gateway container the source is at /app
-    # via the bind mount; on host the path is the repo location.
+    the freshly-generated literal.
+
+    Always writes the standalone formatted block to
+    `/tmp/EN_ES_TOPIC_SEEDS.py` first, so a read-only-mount run
+    isn't a total loss — the 3 minutes of Claude calls survive as a
+    recoverable artifact that the operator can `docker cp` out.
+
+    Then attempts to splice into the live seeds.py. On read-only or
+    not-found, logs a clear pointer to the standalone artifact.
+    """
+    standalone = Path("/tmp/EN_ES_TOPIC_SEEDS.py")
+    standalone.write_text(formatted + "\n", encoding="utf-8")
+    log.info("[seed_es_vocab.standalone] formatted block at %s", standalone)
+
     candidates = [
         Path("/app/app/vocab/seeds.py"),
         Path(__file__).resolve().parent.parent / "app" / "vocab" / "seeds.py",
     ]
     target = next((p for p in candidates if p.exists()), None)
     if target is None:
-        raise FileNotFoundError("could not locate seeds.py")
+        log.warning(
+            "[seed_es_vocab.no_target] seeds.py not found in container; "
+            "use standalone artifact at %s",
+            standalone,
+        )
+        return standalone
 
-    src = target.read_text(encoding="utf-8")
-    # Match the existing block: the line starting with
-    # EN_ES_TOPIC_SEEDS: dict[str, list[dict]] = { up to the matching
-    # closing brace at column 0.
-    pattern = re.compile(
-        r"^EN_ES_TOPIC_SEEDS:\s*dict\[str,\s*list\[dict\]\]\s*=\s*\{.*?^\}",
-        re.DOTALL | re.MULTILINE,
-    )
-    if not pattern.search(src):
-        raise RuntimeError("could not find EN_ES_TOPIC_SEEDS block in seeds.py")
-    new_src = pattern.sub(formatted, src, count=1)
-    target.write_text(new_src, encoding="utf-8")
-    return target
+    try:
+        src = target.read_text(encoding="utf-8")
+        pattern = re.compile(
+            r"^EN_ES_TOPIC_SEEDS:\s*dict\[str,\s*list\[dict\]\]\s*=\s*\{.*?^\}",
+            re.DOTALL | re.MULTILINE,
+        )
+        if not pattern.search(src):
+            log.warning(
+                "[seed_es_vocab.no_anchor] EN_ES_TOPIC_SEEDS placeholder not "
+                "found in %s; use standalone artifact at %s",
+                target,
+                standalone,
+            )
+            return standalone
+        new_src = pattern.sub(formatted, src, count=1)
+        target.write_text(new_src, encoding="utf-8")
+        return target
+    except OSError as exc:
+        log.warning(
+            "[seed_es_vocab.readonly] %s is not writable (%s); use standalone "
+            "artifact at %s — docker cp out and splice into host seeds.py",
+            target,
+            exc,
+            standalone,
+        )
+        return standalone
 
 
 def main() -> None:
