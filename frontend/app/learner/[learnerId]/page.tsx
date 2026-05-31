@@ -1,7 +1,7 @@
 import { Card } from "@/components/Card";
 import { FEATURES } from "./features";
 import { FeatureCard } from "./FeatureCard";
-import { LanguagePairSection } from "./LanguagePairSection";
+import { CurrentPairMastery, LanguagePairControls } from "./LanguagePairControls";
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? "http://localhost:8000";
 
@@ -168,14 +168,17 @@ export default async function LearnerHome({
 
   return (
     <div className="flex flex-col gap-10">
-      <section>
-        <h2 className="text-2xl font-semibold text-ink">
-          Welcome back{learner ? `, ${learner.display_name}` : ""}.
-        </h2>
-        <p className="mt-1 text-sm text-ink-soft">Pick up where you left off.</p>
+      <section className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold text-ink">
+            Welcome back{learner ? `, ${learner.display_name}` : ""}.
+          </h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Pick up where you left off.
+          </p>
+        </div>
+        <LanguagePairControls mastery={mastery} />
       </section>
-
-      <LanguagePairSection mastery={mastery} />
 
       <section>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -202,6 +205,10 @@ export default async function LearnerHome({
         <div className="grid grid-cols-2 gap-3">
           <StreakTile days={overview?.streak_days ?? 0} />
           <MinutesTile seconds={overview?.total_seconds_interpreted ?? 0} />
+        </div>
+
+        <div className="mt-6">
+          <CurrentPairMastery mastery={mastery} />
         </div>
       </section>
 
