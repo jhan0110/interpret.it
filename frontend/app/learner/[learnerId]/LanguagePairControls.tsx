@@ -172,7 +172,7 @@ export function LanguagePairControls({ mastery }: Props) {
 
       <dialog
         ref={dialogRef}
-        className="rounded-[2px] border border-accent bg-paper p-0 text-ink shadow-[0_8px_24px_rgba(0,0,0,0.25)] backdrop:bg-[rgba(0,0,0,0.45)] w-full max-w-md"
+        className="fixed inset-0 m-auto h-fit w-[min(100%-2rem,28rem)] rounded-[2px] border border-accent bg-paper p-0 text-ink shadow-[0_8px_24px_rgba(0,0,0,0.25)] backdrop:bg-[rgba(0,0,0,0.60)]"
         aria-label="Working language and mastery"
         onClick={(e) => {
           // Click-outside-to-close: backdrop click lands on the dialog
