@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Card } from "@/components/Card";
@@ -48,11 +49,21 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 p-8">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink">Interpretit</h1>
-        <p className="mt-1 text-sm text-ink-soft">
-          Enter your learner ID to continue.
-        </p>
+      <div className="flex flex-col items-center gap-3 text-center">
+        <Image
+          src="/logo.png"
+          alt=""
+          width={80}
+          height={80}
+          priority
+          className="rounded-[4px]"
+        />
+        <div>
+          <h1 className="text-2xl font-semibold text-ink">Interpretit</h1>
+          <p className="mt-1 text-sm text-ink-soft">
+            Enter your learner ID to continue.
+          </p>
+        </div>
       </div>
 
       <Card className="p-6">
