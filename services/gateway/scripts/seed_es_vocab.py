@@ -23,56 +23,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
-import sys
 import textwrap
 import time
 from pathlib import Path
 
+import httpx
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
-
-# The generator runs inside the gateway container but reuses the
-# analysis service's LLM client. The container has both packages on
-# sys.path because we bind-mount sources and PYTHONPATH covers both.
-def _import_llm_client():
-    try:
-        from app.llm.client import structured_generate  # type: ignore[import]
-
-        return structured_generate
-    except ImportError:
-        pass
-    # Fall back to importing from the analysis path explicitly.
-    analysis_root = Path("/app").parent / "analysis" / "app"
-    if analysis_root.exists():
-        sys.path.insert(0, str(analysis_root.parent))
-    from analysis.app.llm.client import structured_generate  # type: ignore[import]
-
-    return structured_generate
-
-
-_TRANSLATE_TOOL = {
-    "name": "translate_term",
-    "description": (
-        "Emit a faithful Spanish translation for one English domain-vocabulary "
-        "term, suitable for an interpretation-training flashcard."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "spanish": {
-                "type": "string",
-                "description": (
-                    "The Spanish equivalent term. Prefer the canonical domain "
-                    "vocabulary used by Spanish-language military / diplomatic / "
-                    "intelligence professionals. No definitions, just the term."
-                ),
-            },
-        },
-        "required": ["spanish"],
-    },
-}
 
 _SYSTEM = textwrap.dedent("""\
     You translate English domain-vocabulary terms to Spanish for an
@@ -87,63 +48,132 @@ _SYSTEM = textwrap.dedent("""\
       control").
     - If multiple Spanish equivalents exist, prefer the one used in
       official Spanish-language military doctrine or treaty texts.
-    - Output only the Spanish term itself. No parentheses, no
+    - Respond by calling the translate_term tool. The `spanish`
+      argument is the Spanish term itself — no parentheses, no
       explanations. Lowercase unless a proper noun.
 """)
 
-
-def _translate(term: str, domain: str, register: str, structured_generate) -> str:
-    inp = structured_generate(
-        system=_SYSTEM,
-        user=(
-            f"Domain: {domain}\nRegister: {register}\n\n"
-            f"Translate the English term to Spanish:\n\n{term}"
+_TRANSLATE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "translate_term",
+        "description": (
+            "Emit a faithful Spanish translation for one English domain-"
+            "vocabulary term, suitable for an interpretation-training "
+            "flashcard."
         ),
-        tool=_TRANSLATE_TOOL,
-        spend_kind="claude_seed_es_vocab",
-        temperature=0.0,
-        max_tokens=64,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spanish": {
+                    "type": "string",
+                    "description": (
+                        "The Spanish equivalent term. Prefer the canonical "
+                        "domain vocabulary used by Spanish-language military / "
+                        "diplomatic / intelligence professionals. No "
+                        "definitions, just the term."
+                    ),
+                },
+            },
+            "required": ["spanish"],
+        },
+    },
+}
+
+
+def _openrouter_client() -> tuple[httpx.Client, str, str]:
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set in the gateway container; "
+            "the seed generator can't translate without it."
+        )
+    base = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    model = os.environ.get("CLAUDE_MODEL", "anthropic/claude-sonnet-4-6")
+    client = httpx.Client(
+        base_url=base,
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=httpx.Timeout(60.0, connect=5.0),
     )
-    spanish = (inp.get("spanish") or "").strip()
+    return client, model, base
+
+
+def _translate(client: httpx.Client, model: str, term: str, domain: str, register: str) -> str:
+    """One Claude call via OpenRouter; returns the Spanish term."""
+    body = {
+        "model": model,
+        "max_tokens": 64,
+        "temperature": 0.0,
+        "messages": [
+            {"role": "system", "content": _SYSTEM},
+            {
+                "role": "user",
+                "content": (
+                    f"Domain: {domain}\nRegister: {register}\n\n"
+                    f"Translate the English term to Spanish:\n\n{term}"
+                ),
+            },
+        ],
+        "tools": [_TRANSLATE_TOOL],
+        "tool_choice": {"type": "function", "function": {"name": "translate_term"}},
+    }
+    r = client.post("/chat/completions", json=body)
+    r.raise_for_status()
+    payload = r.json()
+    msg = payload["choices"][0]["message"]
+    tool_calls = msg.get("tool_calls") or []
+    if not tool_calls:
+        raise RuntimeError(f"model returned no tool call for {term!r}: {msg!r}")
+    raw = tool_calls[0]["function"]["arguments"]
+    args = raw if isinstance(raw, dict) else json.loads(raw)
+    spanish = (args.get("spanish") or "").strip()
     if not spanish:
         raise RuntimeError(f"empty translation for {term!r}")
     return spanish
 
 
-def _build_en_es_seeds(structured_generate) -> dict[str, list[dict]]:
+def _build_en_es_seeds() -> dict[str, list[dict]]:
     from app.vocab.seeds import TOPIC_SEEDS
+
+    client, model, base = _openrouter_client()
+    log.info("[seed_es_vocab.openrouter] base=%s model=%s", base, model)
 
     out: dict[str, list[dict]] = {}
     total = sum(len(v) for v in TOPIC_SEEDS.values())
     done = 0
     t0 = time.monotonic()
-    for domain, items in TOPIC_SEEDS.items():
-        out[domain] = []
-        for item in items:
-            term = item["term"]
-            try:
-                spanish = _translate(term, domain, item["register"], structured_generate)
-            except Exception:
-                log.exception("[seed_es_vocab.failed] term=%r — leaving placeholder", term)
-                # Fail soft: insert a placeholder that's obviously
-                # a fallback so a reviewer can fix it by hand.
-                spanish = f"<TODO:{term}>"
-            out[domain].append(
-                {
-                    "term": term,
-                    "definition": spanish,
-                    "register": item["register"],
-                }
-            )
-            done += 1
-            if done % 10 == 0:
-                elapsed = time.monotonic() - t0
-                log.info(
-                    "[seed_es_vocab.progress] %d/%d (%.1fs elapsed)",
-                    done,
-                    total,
-                    elapsed,
+    try:
+        for domain, items in TOPIC_SEEDS.items():
+            out[domain] = []
+            for item in items:
+                term = item["term"]
+                try:
+                    spanish = _translate(client, model, term, domain, item["register"])
+                except Exception:
+                    log.exception(
+                        "[seed_es_vocab.failed] term=%r — leaving placeholder", term
+                    )
+                    # Fail soft: insert a placeholder that a reviewer
+                    # can spot and fix by hand.
+                    spanish = f"<TODO:{term}>"
+                out[domain].append(
+                    {
+                        "term": term,
+                        "definition": spanish,
+                        "register": item["register"],
+                    }
                 )
+                done += 1
+                if done % 10 == 0:
+                    elapsed = time.monotonic() - t0
+                    log.info(
+                        "[seed_es_vocab.progress] %d/%d (%.1fs elapsed)",
+                        done,
+                        total,
+                        elapsed,
+                    )
+    finally:
+        client.close()
     return out
 
 
@@ -198,9 +228,8 @@ def _splice_into_seeds_file(formatted: str) -> Path:
 
 
 def main() -> None:
-    structured_generate = _import_llm_client()
     log.info("[seed_es_vocab.begin]")
-    seeds = _build_en_es_seeds(structured_generate)
+    seeds = _build_en_es_seeds()
     log.info("[seed_es_vocab.generated] domains=%d", len(seeds))
     formatted = _format_block(seeds)
     target = _splice_into_seeds_file(formatted)
