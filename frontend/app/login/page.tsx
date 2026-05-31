@@ -59,7 +59,7 @@ export default function LoginPage() {
           className="rounded-[4px]"
         />
         <div>
-          <h1 className="text-2xl font-semibold text-ink">Interpretit</h1>
+          <h1 className="text-2xl font-semibold text-ink">interpretIt</h1>
           <p className="mt-1 text-sm text-ink-soft">
             Enter your learner ID to continue.
           </p>

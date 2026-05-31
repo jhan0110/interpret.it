@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "interpretit — interpretation training",
+  title: "interpretIt — interpretation training",
   description:
     "Real-time interpretation training with calibrated delay, prosody, and semantic feedback.",
 };

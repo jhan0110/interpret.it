@@ -15,7 +15,7 @@ export default function LearnerLayout({ children }: { children: ReactNode }) {
             priority
             className="rounded-[2px]"
           />
-          <h1 className="text-xl font-semibold text-ink">Interpretit</h1>
+          <h1 className="text-xl font-semibold text-ink">interpretIt</h1>
         </div>
         <LogoutButton />
       </header>
