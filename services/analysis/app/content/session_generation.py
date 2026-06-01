@@ -1,4 +1,4 @@
-"""arq job: produce a 10-pack of training segments for a session.
+"""arq job: produce a 5-pack of training segments for a session.
 
 Wired in `app.worker` as `run_generation`. The job:
 
@@ -48,7 +48,7 @@ def _coerce_params(payload: dict) -> GenerateParams:
         user_level=int(p["user_level"]),
         duration=p["duration"],
         direction=f"{payload['source_lang']}-{payload['target_lang']}",  # type: ignore[arg-type]
-        n=int(p.get("n", 10)),
+        n=int(p.get("n", 5)),
         current_context=p.get("current_context"),
     )
 
@@ -63,8 +63,9 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
     """arq entrypoint. `payload` is the dict pushed by gateway.enqueue_generation.
 
     Earlier versions ran each segment sequentially (TTS → embed → RPC
-    insert), which on n=10 routinely overran the worker's 300 s
-    job_timeout cold. We now:
+    insert), which on a 10-pack routinely overran the worker's 300 s
+    job_timeout cold; even at the new n=5 default the same
+    parallel shape applies. We now:
 
     - Batch all embeddings in one `embed_texts(...)` call (instead of
       ten size-1 batches).

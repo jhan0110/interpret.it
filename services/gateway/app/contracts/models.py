@@ -230,10 +230,10 @@ class GenerationParams(_Strict):
     user_level: int = Field(ge=1, le=5)
     duration: Literal["short", "medium", "long"]
     current_context: str | None = None
-    # CLAUDE.md treats 10 phrases as the canonical training-session
-    # size. The contract still allows 1–50 (smoke tests and budget-tight
-    # runs use n=2 explicitly via the request payload).
-    n: int = Field(default=10, ge=1, le=50)
+    # 5 phrases is the canonical training-session size. The contract
+    # still allows 1–50 (smoke tests use n=2 explicitly via the
+    # request payload; longer sets can be requested on demand).
+    n: int = Field(default=5, ge=1, le=50)
 
 
 class PostSessionRequest(_Strict):

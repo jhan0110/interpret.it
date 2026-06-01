@@ -135,11 +135,11 @@ async def _emit_initial_generation(ws: WebSocket, session_id: UUID) -> None:
         return
     plan_n = len(row.planned_segment_ids or [])
     # `target` is the eventual phrase count if we know it (from params),
-    # otherwise fall back to 10 (the CLAUDE.md canonical session size).
+    # otherwise fall back to 5 (the canonical session size).
     try:
-        target = int((row.generation_params or {}).get("n", 10))
+        target = int((row.generation_params or {}).get("n", 5))
     except (TypeError, ValueError):
-        target = 10
+        target = 5
     await _send_envelope(
         ws,
         "generation.progress",

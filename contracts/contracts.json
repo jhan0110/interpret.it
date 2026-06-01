@@ -226,7 +226,7 @@
 
   // Operator-supplied parameters for the daily-training-session generator.
   // When present, gateway enforces the quota, persists the params, and
-  // enqueues an analysis job that produces a 10-pack of cohesive phrases.
+  // enqueues an analysis job that produces a 5-pack of cohesive phrases.
   "REST.GenerationParams": {
     "topics":          ["string"],
     "user_level":      "integer 1-5",

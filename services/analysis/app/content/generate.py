@@ -68,7 +68,7 @@ class GenerateParams:
     user_level: UserLevel
     duration: DurationBand
     direction: Direction
-    n: int = 10
+    n: int = 5
     current_context: str | None = None
 
 
