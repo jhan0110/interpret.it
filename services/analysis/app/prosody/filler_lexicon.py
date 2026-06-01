@@ -18,7 +18,13 @@ markers like `como` (also the comparative "like") and `vale`
 disambiguated without context-aware POS tagging. Expand only with
 linguist sign-off; document the reasoning per added entry.
 
-If a linguist re-evaluates either lexicon, expand here with a
+The Chinese (Mandarin) lexicon is PROVISIONAL. The pure hesitation
+vocalisations (`嗯`, `呃`, `啊`) are high-confidence, but the
+demonstratives `那个`/`这个` are included on their dominant stalling
+reading and need Mandarin-linguist sign-off before the cognitive-load
+thresholds are tuned against them.
+
+If a linguist re-evaluates any lexicon, expand here with a
 clear comment on what specifically tipped the choice.
 """
 
@@ -73,6 +79,25 @@ FILLER_LEXICON: dict[str, frozenset[str]] = {
             #   "como"  — also the comparative "like"; can't disambiguate without context
             #   "vale"  — affirmation; not unambiguously a filler
             #   "digamos" — "let's say"; meaningful framing in formal Spanish
+        }
+    ),
+    "zh": frozenset(
+        {
+            # Pure hesitation vocalisations (Mandarin). High-confidence —
+            # these have no content-word reading.
+            "嗯",  # "mm" — hesitation
+            "呃",  # "uh" — hesitation
+            "啊",  # "ah" — hesitation
+            # Demonstratives overwhelmingly used as stalling tokens in
+            # spoken Mandarin ("the... uh... that thing"). They do have
+            # literal this/that readings, so this list is PROVISIONAL and
+            # needs Mandarin-linguist sign-off before threshold tuning.
+            "那个",  # "that" — dominant filler reading when stalling
+            "这个",  # "this" — dominant filler reading when stalling
+            # NOT INCLUDED (would over-flag; revisit with linguist sign-off):
+            #   "就是" — "that is"; common but also meaningful copula framing
+            #   "然后" — "and then"; sequential connective, not pure filler
+            #   "像"   — "like"; comparative, can't disambiguate without context
         }
     ),
 }

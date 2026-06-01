@@ -26,6 +26,9 @@ _VALID_PAIRS: dict[str, tuple[str, str]] = {
     "en-ko": ("en", "ko"),
     "en-es": ("en", "es"),
     "ko-es": ("ko", "es"),
+    "en-zh": ("en", "zh"),
+    "ko-zh": ("ko", "zh"),
+    "es-zh": ("es", "zh"),
 }
 
 

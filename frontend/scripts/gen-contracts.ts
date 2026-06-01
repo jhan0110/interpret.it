@@ -34,7 +34,7 @@ const schema = JSON.parse(stripped);
 const SESSION_STATES =
   '"idle" | "listening" | "recording" | "analyzing" | "feedback" | "next_segment" | "complete"';
 const REGISTER = '"formal-military" | "formal-diplomatic" | "informal"';
-const LANG = '"ko" | "en" | "es"';
+const LANG = '"ko" | "en" | "es" | "zh"';
 const HEALTH_STATUS = '"ok" | "degraded" | "down"';
 const COGNITIVE_LOAD = '"low" | "moderate" | "high" | "overloaded"';
 const ERROR_TYPE =

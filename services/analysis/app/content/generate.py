@@ -24,14 +24,18 @@ Direction = Literal[
     "en-ko", "ko-en",
     "en-es", "es-en",
     "ko-es", "es-ko",
+    "en-zh", "zh-en",
+    "ko-zh", "zh-ko",
+    "es-zh", "zh-es",
     # Same-language directions (memorization mode — source == target).
-    "en-en", "ko-ko", "es-es",
+    "en-en", "ko-ko", "es-es", "zh-zh",
 ]
 
 _LANG_LONG_NAMES: dict[str, str] = {
     "en": "English",
     "ko": "Korean",
     "es": "Spanish",
+    "zh": "Chinese",
 }
 
 
@@ -56,7 +60,10 @@ _ALL_DIRECTIONS: tuple[str, ...] = (
     "en-ko", "ko-en",
     "en-es", "es-en",
     "ko-es", "es-ko",
-    "en-en", "ko-ko", "es-es",
+    "en-zh", "zh-en",
+    "ko-zh", "zh-ko",
+    "es-zh", "zh-es",
+    "en-en", "ko-ko", "es-es", "zh-zh",
 )
 _DIRECTION_LABEL: dict[str, str] = {d: _direction_label(d) for d in _ALL_DIRECTIONS}
 _SOURCE_LANG_LONG: dict[str, str] = {d: _source_lang_long(d) for d in _ALL_DIRECTIONS}

@@ -17,8 +17,8 @@ async function safeFetch<T>(url: string): Promise<T | null> {
 
 interface MasteryScore {
   domain: string;
-  source_lang: "en" | "ko" | "es";
-  target_lang: "en" | "ko" | "es";
+  source_lang: "en" | "ko" | "es" | "zh";
+  target_lang: "en" | "ko" | "es" | "zh";
   mastery: number;
   tier: number;
   tier_name: string;

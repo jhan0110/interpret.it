@@ -64,6 +64,23 @@ def test_generate_segments_langs_match_direction() -> None:
         assert seg.target_lang == "en"
 
 
+def test_generate_segments_supports_chinese_direction() -> None:
+    en_zh = generate_segments(_params(direction="en-zh"))
+    assert len(en_zh.segments) == 10
+    for seg in en_zh.segments:
+        assert seg.source_lang == "en"
+        assert seg.target_lang == "zh"
+
+
+def test_direction_label_renders_chinese() -> None:
+    from app.content.generate import _direction_label
+
+    assert _direction_label("en-zh") == "English → Chinese"
+    assert _direction_label("zh-en") == "Chinese → English"
+    # Memorization (same-language) renders just the single language.
+    assert _direction_label("zh-zh") == "Chinese"
+
+
 def test_generate_segments_domain_is_first_topic() -> None:
     result = generate_segments(_params(topics=("operations", "medical")))
     for seg in result.segments:

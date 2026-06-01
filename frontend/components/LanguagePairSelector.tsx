@@ -10,22 +10,29 @@ import { SegmentedControl } from "./SegmentedControl";
  * surfaced in the picker until the pipeline has been validated for
  * non-English source content.
  */
-export type LanguagePair = "en-ko" | "en-es" | "ko-es";
+export type LanguagePair = "en-ko" | "en-es" | "en-zh" | "ko-es" | "ko-zh" | "es-zh";
 
-/** Pairs shown in the selector. KO ↔ ES is deliberately excluded —
- *  see the type docstring above. */
-export const LANGUAGE_PAIRS: LanguagePair[] = ["en-ko", "en-es"];
+/** Pairs shown in the selector. Only English-anchored pairs are
+ *  surfaced; KO ↔ ES / KO ↔ ZH / ES ↔ ZH are recognised by the backend
+ *  but deliberately excluded — see the type docstring above. */
+export const LANGUAGE_PAIRS: LanguagePair[] = ["en-ko", "en-es", "en-zh"];
 
 const PAIR_LABEL: Record<LanguagePair, string> = {
   "en-ko": "EN ↔ KO",
   "en-es": "EN ↔ ES",
+  "en-zh": "EN ↔ ZH",
   "ko-es": "KO ↔ ES",
+  "ko-zh": "KO ↔ ZH",
+  "es-zh": "ES ↔ ZH",
 };
 
 const PAIR_ARIA: Record<LanguagePair, string> = {
   "en-ko": "English and Korean",
   "en-es": "English and Spanish",
+  "en-zh": "English and Chinese",
   "ko-es": "Korean and Spanish",
+  "ko-zh": "Korean and Chinese",
+  "es-zh": "Spanish and Chinese",
 };
 
 type Props = {

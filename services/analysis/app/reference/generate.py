@@ -61,8 +61,8 @@ Rules:
 
 def generate_reference(
     source_text: str,
-    source_lang: Literal["ko", "en", "es"],
-    target_lang: Literal["ko", "en", "es"],
+    source_lang: Literal["ko", "en", "es", "zh"],
+    target_lang: Literal["ko", "en", "es", "zh"],
     register: Literal["formal-military", "formal-diplomatic", "informal"],
     domain: str,
 ) -> ReferenceBundle:

@@ -65,7 +65,7 @@ def _download_from_minio(audio_path: str, local_path: str) -> None:
     client.download_file(bucket, audio_path, local_path)
 
 
-def transcribe(audio_path: str, lang: Literal["ko", "en", "es"], prompt: str | None = None) -> WordTimestampedTranscript:
+def transcribe(audio_path: str, lang: Literal["ko", "en", "es", "zh"], prompt: str | None = None) -> WordTimestampedTranscript:
     """Dispatch to local faster-whisper or a remote provider per WHISPER_PROVIDER."""
     provider = os.environ.get("WHISPER_PROVIDER", "local")
     log.info("[asr.transcribe.dispatch] provider=%s audio_path=%s lang=%s", provider, audio_path, lang)
@@ -76,7 +76,7 @@ def transcribe(audio_path: str, lang: Literal["ko", "en", "es"], prompt: str | N
     return _transcribe_local(audio_path, lang, prompt)
 
 
-def _transcribe_local(audio_path: str, lang: Literal["ko", "en", "es"], prompt: str | None = None) -> WordTimestampedTranscript:
+def _transcribe_local(audio_path: str, lang: Literal["ko", "en", "es", "zh"], prompt: str | None = None) -> WordTimestampedTranscript:
     """Local faster-whisper transcription (fallback / offline mode)."""
     import tempfile
 

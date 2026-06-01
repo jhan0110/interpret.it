@@ -17,7 +17,10 @@ const DEFAULT_PAIR: LanguagePair = "en-ko";
 const PAIR_LABEL: Record<LanguagePair, string> = {
   "en-ko": "EN ↔ KO",
   "en-es": "EN ↔ ES",
+  "en-zh": "EN ↔ ZH",
   "ko-es": "KO ↔ ES",
+  "ko-zh": "KO ↔ ZH",
+  "es-zh": "ES ↔ ZH",
 };
 
 function readPair(): LanguagePair {

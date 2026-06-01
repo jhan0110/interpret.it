@@ -11,7 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
-Lang = Literal["ko", "en", "es"]
+Lang = Literal["ko", "en", "es", "zh"]
 Register = Literal["formal-military", "formal-diplomatic", "informal"]
 CognitiveLoad = Literal["low", "moderate", "high", "overloaded"]
 Severity = Literal["minor", "moderate", "critical"]

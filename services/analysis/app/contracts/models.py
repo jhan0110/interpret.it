@@ -14,7 +14,7 @@ BoundedFloat = Annotated[float, Field(ge=0.0, le=1.0)]
 DifficultyLevel = Annotated[int, Field(ge=1, le=10)]
 
 Register = Literal["formal-military", "formal-diplomatic", "informal"]
-Lang = Literal["ko", "en", "es"]
+Lang = Literal["ko", "en", "es", "zh"]
 CognitiveLoad = Literal["low", "moderate", "high", "overloaded"]
 ErrorType = Literal[
     "semantic_drift",

@@ -33,7 +33,7 @@ _GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 _DEFAULT_MODEL = "whisper-large-v3"
 
 
-def transcribe(audio_path: str, lang: Literal["ko", "en", "es"], prompt: str | None = None) -> WordTimestampedTranscript:
+def transcribe(audio_path: str, lang: Literal["ko", "en", "es", "zh"], prompt: str | None = None) -> WordTimestampedTranscript:
     """Transcribe an audio blob stored in MinIO via the Groq API."""
     log.info("[asr.groq.begin] audio_path=%s lang=%s", audio_path, lang)
     t0 = time.monotonic()

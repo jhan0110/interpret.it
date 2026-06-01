@@ -20,13 +20,14 @@ import {
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "";
 
-type Lang = "en" | "ko" | "es";
+type Lang = "en" | "ko" | "es" | "zh";
 type DirectionTuple = { source_lang: Lang; target_lang: Lang };
 
 const LANG_LONG: Record<Lang, string> = {
   en: "English",
   ko: "Korean",
   es: "Spanish",
+  zh: "Chinese",
 };
 
 const PAIR_STORAGE_KEY = "interpretit:language_pair";

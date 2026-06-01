@@ -11,8 +11,8 @@ import {
 
 interface MasteryScore {
   domain: string;
-  source_lang: "en" | "ko" | "es";
-  target_lang: "en" | "ko" | "es";
+  source_lang: "en" | "ko" | "es" | "zh";
+  target_lang: "en" | "ko" | "es" | "zh";
   tier: number;
   tier_name: string;
   next_tier_name: string | null;
@@ -27,7 +27,10 @@ const DEFAULT_PAIR: LanguagePair = "en-ko";
 const PAIR_LABEL: Record<LanguagePair, string> = {
   "en-ko": "EN ↔ KO",
   "en-es": "EN ↔ ES",
+  "en-zh": "EN ↔ ZH",
   "ko-es": "KO ↔ ES",
+  "ko-zh": "KO ↔ ZH",
+  "es-zh": "ES ↔ ZH",
 };
 
 /** Read the persisted pair, or null if storage is unavailable / unset. */
