@@ -284,6 +284,16 @@ contributors should treat them as anti-patterns.
 - **Connection pooling is the default, not the optimization.** Every
   Redis publish and boto3 client used to be `from_url(...) + aclose()`
   per call. Module-level cached clients are the floor.
+- **An enum lives in more than the code.** Adding Chinese (`zh`) to the
+  `Lang` literal across contracts + Pydantic + frontend was not enough:
+  five Postgres CHECK constraints (`segments_{src,tgt}_lang_chk`,
+  `learners_lang_chk`, `mastery_scores_{src,tgt}_lang_chk`) still pinned
+  the column to `('ko','en','es')`. Generation's LLM step succeeded, then
+  the segment INSERT raised `CheckViolationError` → 500 at
+  `/internal/segments`. Adding a value to any DB-backed enum =
+  code change **plus** an Alembic migration relaxing the CHECK (see
+  `0007` for `es`, `0008` for `zh`). Grep `pg_constraint` for the column
+  before assuming the code change is complete.
 - **N+1 hides in "simple" list endpoints.** `list_learner_sessions`
   did `select(SessionRow).limit(5)` then `select(AttemptRow)` per row
   — six round-trips per dashboard load. Aggregate or `selectinload`
