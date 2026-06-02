@@ -81,6 +81,47 @@ def test_direction_label_renders_chinese() -> None:
     assert _direction_label("zh-zh") == "Chinese"
 
 
+def test_medical_domain_guidance_is_civilian() -> None:
+    from app.content.generate import _domain_guidance
+
+    # Low difficulty: civilian framing, explicitly no military.
+    low = _domain_guidance(("medical",), internal_max=3)
+    assert "CIVILIAN" in low
+    for banned in ("combat", "MEDEVAC", "battlefield", "field-medicine"):
+        assert banned in low  # they appear inside the "do NOT use" list
+    assert "differential" not in low  # no clinic-jargon ask at low difficulty
+
+    # High difficulty: adds clinic jargon / case detail.
+    high = _domain_guidance(("medical",), internal_max=9)
+    assert "differential diagnosis" in high
+    assert "history of present illness" in high
+
+    # Non-medical domains get no override.
+    assert _domain_guidance(("logistics",), internal_max=9) == ""
+
+
+def test_prompt_injects_medical_guidance_and_chinese_conversational() -> None:
+    from app.content.generate import _template_variables
+    from app.llm.templates import render_template
+
+    med_zh = render_template(
+        "generate_segments",
+        _template_variables(_params(topics=("medical",), direction="zh-en")),
+    )
+    # Civilian medical guidance reaches the system prompt.
+    assert "CIVILIAN clinical domain" in med_zh.system
+    # Chinese source → conversational-Mandarin block is rendered.
+    assert "CONVERSATIONAL spoken Mandarin" in med_zh.system
+
+    # English source, non-medical → neither block renders.
+    log_en = render_template(
+        "generate_segments",
+        _template_variables(_params(topics=("logistics",), direction="en-ko")),
+    )
+    assert "CIVILIAN clinical domain" not in log_en.system
+    assert "CONVERSATIONAL spoken Mandarin" not in log_en.system
+
+
 def test_generate_segments_domain_is_first_topic() -> None:
     result = generate_segments(_params(topics=("operations", "medical")))
     for seg in result.segments:

@@ -31,6 +31,6 @@ TOPIC_DESCRIPTIONS: dict[Topic, str] = {
     "diplomacy": "interstate relations, negotiations, joint statements, and protocol",
     "intelligence": "briefings, threat assessments, signals analysis, and indicators",
     "operations": "tactical planning, mission coordination, and orders",
-    "medical": "combat medicine, MEDEVAC, casualty triage, and field care",
+    "medical": "civilian clinical care — patient histories, symptoms, diagnoses, treatment plans, and clinician–patient consultations",
     "cyber": "information warfare, network defense, and incident response",
 }

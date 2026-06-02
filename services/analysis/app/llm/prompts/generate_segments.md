@@ -38,9 +38,20 @@ system: |
   - Use natural punctuation; sub-clauses and parenthetical asides are
     welcome at higher difficulty.
 
-  Register: prefer the language professional military interpreters
-  actually encounter in {{ direction_label }} settings — formal-military,
-  formal-diplomatic, or operational, matching the scenario.
+  Register: choose the register that fits the scenario and domain —
+  formal-military, formal-diplomatic, operational, or informal. Default
+  to the language professional interpreters actually encounter in
+  {{ direction_label }} settings, but always follow the domain guidance
+  below when it is present.
+
+  {% if domain_guidance %}
+  Domain guidance (overrides the default framing):
+  {{ domain_guidance }}
+  {% endif %}
+
+  {% if language_guidance %}
+  Spoken-language guidance: {{ language_guidance }}
+  {% endif %}
 
   {% if current_context %}
   Current context (use to bias the scenario toward today's realities;

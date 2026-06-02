@@ -105,12 +105,63 @@ def _hash_inputs(*parts: str) -> str:
     return h.hexdigest()[:16]
 
 
+def _domain_guidance(topics: tuple[str, ...], internal_max: int) -> str:
+    """Per-domain framing overrides injected into the generation prompt.
+
+    The platform's default register is military; `medical` is the
+    deliberate exception — it must read as a CIVILIAN clinical domain
+    with no combat/field-medicine framing. Difficulty-scaled: at the
+    higher bands, ask for the clinical jargon a clinician would meet.
+    """
+    notes: list[str] = []
+    if "medical" in topics:
+        note = (
+            "MEDICAL is a CIVILIAN clinical domain — patients, doctors, "
+            "nurses, hospitals, outpatient and family clinics. Do NOT use "
+            "any military, combat, battlefield, MEDEVAC, mass-casualty, "
+            "triage-under-fire, or field-medicine framing; no ranks, units, "
+            "deployments, or command language. Use informal or operational "
+            "register: natural clinician–patient and clinician–clinician "
+            "dialogue, not formal-military."
+        )
+        if internal_max >= 7:
+            note += (
+                " At this difficulty, weave in the realistic clinical jargon "
+                "and case detail encountered at a clinic — presenting "
+                "complaint, history of present illness, differential "
+                "diagnosis, medication names and dosages, lab values, and "
+                "relevant specialist terminology."
+            )
+        notes.append(note)
+    return "\n".join(notes)
+
+
+def _language_guidance(source_lang: str) -> str:
+    """Per-source-language tone overrides (single line, prompt-injected).
+
+    Chinese source material defaulted to stiff, bureaucratic prose; the
+    learner hears and interprets it, so it should sound like real speech.
+    """
+    if source_lang == "zh":
+        return (
+            "The source phrases are spoken Mandarin the learner will hear and "
+            "interpret — write NATURAL, CONVERSATIONAL spoken Mandarin with "
+            "everyday phrasing, natural connectors, and idiomatic rhythm, not "
+            "stiff written or bureaucratic prose. Avoid translationese and "
+            "overly formal set phrases; make it sound like how the scenario's "
+            "speakers really talk."
+        )
+    return ""
+
+
 def _template_variables(params: GenerateParams) -> dict:
     band = LEVEL_BANDS[params.user_level]
     duration_spec = DURATION_BANDS[params.duration]
     topic_csv = ", ".join(params.topics)
     src, tgt = params.direction.split("-")
     return {
+        "domain_guidance": _domain_guidance(params.topics, band.internal_range[1]),
+        "language_guidance": _language_guidance(src),
         "n": params.n,
         "topic_csv": topic_csv,
         "topic_descriptions": [TOPIC_DESCRIPTIONS[t] for t in params.topics],

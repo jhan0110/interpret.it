@@ -54,6 +54,8 @@ def test_generate_segments_template_renders(tmp_path: Path) -> None:
             "source_lang": "en",
             "target_lang": "ko",
             "source_lang_long": "English",
+            "domain_guidance": "",
+            "language_guidance": "",
             "current_context": "",
         },
     )
