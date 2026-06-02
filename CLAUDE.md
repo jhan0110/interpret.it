@@ -71,7 +71,7 @@ Two FastAPI services behind a shared gateway, one Next.js frontend.
 - TypeScript: Strict mode. Functional components only. No `any` types.
   Named exports, not default (except page.tsx / layout.tsx).
 - Commits: Conventional Commits (feat:, fix:, refactor:, docs:, test:).
-  One commit per logical change. Never commit to main directly.
+  One commit per logical change.
 - Tests: Every new module needs a test file. Use pytest + httpx for Python,
   Vitest for frontend.
 
