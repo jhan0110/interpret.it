@@ -181,11 +181,29 @@ set-level cohesion.
 via Redis counter `gen_quota:<learner_id>:<YYYY-MM-DD>` with 24h TTL.
 Override via `GEN_QUOTA_DAILY` env var or operator-only `?force=1`.
 
-Phrases live in a **shared pool** keyed by `(domain, direction,
-level-band, length-band, prompt-template-hash, prompt-vars-hash)`. Each
-learner gets a random unseen sample; the LLM is only called when
-`pool − learner_history < 10`. Learner history = any `AttemptRow` they
-own referencing the segment.
+Generated phrases live in a **shared pool reused as whole cohesive
+sets** (not individual phrases — reuse must preserve the one-story
+guarantee). Implemented as of 2026-06-02:
+
+- Each generation is recorded in `generated_sets`, keyed by
+  `(prompt_template_hash, prompt_vars_hash)`. `template_hash` hashes the
+  *rendered* prompt, so it already encodes the prompt text, every
+  guidance var, and `n` — any prompt edit or param change yields a fresh
+  pool automatically (no manual version bump). The single source of
+  truth is `content/generate.py::compute_generation_keys`.
+- `run_generation` (the `generation` arq job) is **pool-first**: it asks
+  the gateway (`POST /internal/segment_pool`, read-only) for an unseen
+  set matching the key and serves it with **no LLM/TTS/embedding** call;
+  only on a miss does it generate fresh and record the new set.
+- **A learner is never served the same set twice.** Every served set is
+  written to the `learner_seen_sets(learner_id, set_id)` ledger **in the
+  same transaction** that sets `planned_segment_ids` (`post_session_plan`
+  takes an optional `generated_set_id`). Assignment — not attempt —
+  marks a set seen, so a drop before the first attempt can't re-expose
+  it. The pool accumulates multiple distinct scenarios per key, so a
+  returning learner gets a *new* story until all are exhausted.
+- Set id is deterministic (`uuid5` of sorted segment_ids) → idempotent
+  re-record. Kill-switch: `GENERATION_POOL_REUSE` (default `1`).
 
 Prompt templates live in `services/analysis/app/llm/prompts/*.md` —
 Markdown with YAML front-matter (model, temperature, max_tokens, tool
