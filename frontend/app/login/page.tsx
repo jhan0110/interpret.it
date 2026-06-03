@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [learnerId, setLearnerId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [creatingGuest, setCreatingGuest] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -44,6 +45,29 @@ export default function LoginPage() {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleCreateGuest() {
+    setError(null);
+    setCreatingGuest(true);
+    try {
+      const res = await fetch(`${GATEWAY_URL}/learners`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) {
+        setError(`Could not create guest account (${res.status})`);
+        return;
+      }
+      const learner = (await res.json()) as { id: string };
+      localStorage.setItem("interpretit:learner_id", learner.id);
+      router.push(`/learner/${learner.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setCreatingGuest(false);
     }
   }
 
@@ -86,14 +110,34 @@ export default function LoginPage() {
             </p>
           )}
 
-          <Button type="submit" variant="primary" disabled={submitting}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={submitting || creatingGuest}
+          >
             {submitting ? "Checking..." : "Continue"}
           </Button>
+
+          <div className="flex items-center gap-3 text-xs uppercase tracking-wider text-ink-faint">
+            <span className="h-px flex-1 bg-accent/40" />
+            or
+            <span className="h-px flex-1 bg-accent/40" />
+          </div>
 
           <Button
             type="button"
             variant="ghost"
+            onClick={handleCreateGuest}
+            disabled={submitting || creatingGuest}
+          >
+            {creatingGuest ? "Creating..." : "Create guest account"}
+          </Button>
+
+          <Button
+            type="button"
+            variant="link"
             onClick={() => setLearnerId(DEV_LEARNER_ID)}
+            disabled={submitting || creatingGuest}
           >
             Use dev learner
           </Button>

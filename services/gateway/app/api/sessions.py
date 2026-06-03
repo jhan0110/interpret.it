@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, update
@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.contracts.models import (
     CompleteSessionResponse,
+    Lang,
     Learner,
     PostSessionRequest,
     Session,
@@ -232,6 +233,49 @@ async def complete_session(session_id: UUID) -> CompleteSessionResponse:
         mean_score=max(0.0, min(1.0, mean)),
         mastery_changes=[],
     )
+
+
+class CreateLearnerRequest(BaseModel):
+    """Optional overrides when creating a learner.
+
+    A guest sign-up sends an empty body and takes the defaults: a
+    server-minted UUID, a 'Guest …' display name, and English as the
+    primary language (the working pair is chosen later on the home hub).
+    """
+
+    display_name: str | None = None
+    primary_lang: Lang = "en"
+
+
+@router.post("/learners", response_model=Learner, status_code=201)
+async def create_learner(body: CreateLearnerRequest | None = None) -> Learner:
+    """Create a new learner and return it. Used by the guest-account flow.
+
+    The UUID is generated server-side so a client can't squat an
+    arbitrary id; the response carries the new id for the caller to
+    persist and navigate to.
+    """
+    body = body or CreateLearnerRequest()
+    new_id = uuid4()
+    display_name = (body.display_name or "").strip() or f"Guest {str(new_id)[:8]}"
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        row = LearnerRow(
+            id=new_id,
+            display_name=display_name,
+            primary_lang=body.primary_lang,
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return Learner.model_validate(
+            {
+                "id": row.id,
+                "display_name": row.display_name,
+                "primary_lang": row.primary_lang,
+                "created_at": row.created_at,
+            }
+        )
 
 
 @router.get("/learners/{learner_id}", response_model=Learner)
