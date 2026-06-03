@@ -66,10 +66,12 @@ def _coerce_params(payload: dict) -> GenerateParams:
     )
 
 
-# Cap parallel TTS calls so a generation burst doesn't trip OpenRouter
-# rate limits. 4 is conservative on the documented free-tier RPS;
-# bump cautiously after observing real-world throughput.
-_TTS_CONCURRENCY = 4
+# Cap parallel TTS calls so a generation burst doesn't trip provider
+# rate limits. 8 lets the canonical n=5 set (and up to n=8) synthesize in
+# a single wave instead of two, shaving a TTS round-trip off cold-miss
+# generation. OpenAI TTS (the default provider) comfortably handles this;
+# lower it if a future provider has tighter RPS.
+_TTS_CONCURRENCY = 8
 
 
 async def run_generation(_ctx: dict, payload: dict) -> dict:

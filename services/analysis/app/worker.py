@@ -173,29 +173,19 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
 
         feedback_audio_key = "placeholder/semantic_feedback.mp3"
         followup_audio_key = "placeholder/semantic_followup.mp3"
-        log.info("[semantic.tts.begin] attempt=%s", req.attempt_id)
-        t_tts = time.monotonic()
-        try:
-            # Pass voice_id=None so generate_feedback_audio() picks the
-            # provider-aware default via `_feedback_default_voice()`.
-            # The old code unconditionally passed ELEVENLABS_FEEDBACK_VOICE,
-            # which breaks when TTS_PROVIDER=openai because OpenAI's TTS
-            # only accepts its named voices (alloy/echo/fable/...), not
-            # ElevenLabs UUIDs.
-            feedback_audio_key = await asyncio.to_thread(
-                generate_feedback_audio,
-                "feedback placeholder",
-                None,
-            )
-            tts_ms = int((time.monotonic() - t_tts) * 1000)
-            log.info("[semantic.tts.done] attempt=%s took=%dms key=%s", req.attempt_id, tts_ms, feedback_audio_key)
-        except Exception as exc:
-            tts_ms = int((time.monotonic() - t_tts) * 1000)
-            log.info("[semantic.tts.error] attempt=%s err=%s took=%dms", req.attempt_id, exc, tts_ms)
-            log.exception("feedback TTS failed; using placeholder")
 
-        log.info("[semantic.evaluate.begin] attempt=%s mode=%s", req.attempt_id, req.mode)
+        # Run feedback TTS concurrently with evaluation. The feedback audio
+        # is a fixed placeholder string and `evaluate()` only stores the key
+        # (it does not depend on the audio), so overlapping them takes the
+        # ~1-2s TTS round-trip off the critical path: the learner gets the
+        # semantic result after max(tts, eval) instead of tts + eval.
+        # Pass voice_id=None so generate_feedback_audio() picks the
+        # provider-aware default (OpenAI TTS rejects ElevenLabs UUIDs).
+        log.info("[semantic.tts+eval.begin] attempt=%s mode=%s", req.attempt_id, req.mode)
         t_eval = time.monotonic()
+        tts_task = asyncio.create_task(
+            asyncio.to_thread(generate_feedback_audio, "feedback placeholder", None)
+        )
         if is_memorization:
             result = await asyncio.to_thread(
                 evaluate_memorization,
@@ -229,8 +219,15 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
                 start,
             )
         eval_ms = int((time.monotonic() - t_eval) * 1000)
+        # Resolve the concurrent TTS and stamp the real key onto the result.
+        # On failure keep the placeholder (feedback audio is non-critical).
+        try:
+            feedback_audio_key = await tts_task
+            result.feedback_audio_path = feedback_audio_key
+        except Exception:
+            log.exception("feedback TTS failed; using placeholder key")
         log.info(
-            "[semantic.evaluate.done] attempt=%s score=%.3f errors=%d took=%dms",
+            "[semantic.evaluate.done] attempt=%s score=%.3f errors=%d eval_took=%dms",
             req.attempt_id,
             result.overall_score,
             len(result.errors),
@@ -303,9 +300,35 @@ async def run_semantic(_ctx: dict, payload: dict) -> dict:
         return fallback.model_dump(mode="json")
 
 
+async def _prewarm_embeddings(ctx: dict) -> None:
+    """Pre-load the multilingual-e5 model when this worker serves the
+    generation queue, so the FIRST real generation doesn't pay the ~60s
+    lazy cold-load (it dominates cold-miss latency — see job_timeout note).
+
+    Gated to ARQ_QUEUE_NAME=generation on purpose: run_semantic never
+    embeds, and loading a second ~2GB model copy in the semantic worker
+    could OOM the box. Best-effort — a failure just falls back to the
+    original lazy load on first use.
+    """
+    if os.getenv("ARQ_QUEUE_NAME", "semantic") != "generation":
+        return
+    try:
+        from app.embeddings import embed_texts
+
+        t0 = time.monotonic()
+        await asyncio.to_thread(embed_texts, ["warmup"])
+        log.info(
+            "[worker.startup] embedding model pre-warmed in %dms",
+            int((time.monotonic() - t0) * 1000),
+        )
+    except Exception:
+        log.exception("[worker.startup] embedding pre-warm failed; lazy-load on first use")
+
+
 class WorkerSettings:
     functions = [run_semantic, run_generation, run_vocab_extraction]
     redis_settings = _redis_settings()
+    on_startup = staticmethod(_prewarm_embeddings)
     queue_name = os.getenv("ARQ_QUEUE_NAME", "semantic")
     max_jobs = int(os.getenv("ARQ_MAX_JOBS", "4"))
     # Generation jobs include Claude + n×TTS + first-call multilingual-e5
