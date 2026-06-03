@@ -292,3 +292,48 @@ class ParaphraseEmbeddingRow(Base):
     created_at: Mapped[datetime] = _ts(default_now=True)
 
     __table_args__ = (Index("ix_paraphrase_embeddings_segment", "segment_id"),)
+
+
+class GeneratedSetRow(Base):
+    """A complete generated scenario, keyed for cross-learner reuse.
+
+    `id` is deterministic — `uuid5` of the sorted segment_ids — so
+    re-recording the identical set is idempotent. The pool key is
+    `(prompt_template_hash, prompt_vars_hash)`; `template_hash` already
+    encodes the prompt text, every rendered variable, and `n`, so any
+    prompt edit or param change yields a fresh pool automatically.
+    """
+
+    __tablename__ = "generated_sets"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    prompt_template_hash: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_vars_hash: Mapped[str] = mapped_column(String, nullable=False)
+    scenario_summary: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Ordered list of segment-id strings — the cohesive scenario.
+    segment_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = _ts(default_now=True)
+
+    __table_args__ = (
+        Index("ix_generated_sets_keys", "prompt_template_hash", "prompt_vars_hash"),
+    )
+
+
+class LearnerSeenSetRow(Base):
+    """Ledger of generated sets a learner has been *served* (assigned).
+
+    Written in the same transaction that sets `planned_segment_ids`, so a
+    learner is never assigned the same set twice — assignment, not attempt,
+    marks a set seen (a network drop before the first attempt does not
+    re-expose it).
+    """
+
+    __tablename__ = "learner_seen_sets"
+
+    learner_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("learners.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    set_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    assigned_at: Mapped[datetime] = _ts(default_now=True)

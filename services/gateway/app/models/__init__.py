@@ -1,7 +1,9 @@
 from app.models.base import Base
 from app.models.tables import (
     AttemptRow,
+    GeneratedSetRow,
     LearnerRow,
+    LearnerSeenSetRow,
     LearnerTopicRow,
     LearnerVocabDeckRow,
     MasteryScoreRow,
@@ -14,7 +16,9 @@ from app.models.tables import (
 __all__ = [
     "AttemptRow",
     "Base",
+    "GeneratedSetRow",
     "LearnerRow",
+    "LearnerSeenSetRow",
     "LearnerTopicRow",
     "LearnerVocabDeckRow",
     "MasteryScoreRow",

@@ -105,6 +105,32 @@ def _hash_inputs(*parts: str) -> str:
     return h.hexdigest()[:16]
 
 
+def compute_generation_keys(params: GenerateParams) -> tuple[str, str]:
+    """Return ``(prompt_template_hash, prompt_vars_hash)`` — the shared-pool key.
+
+    Renders the template (cheap, **no LLM**) so ``template_hash`` captures
+    the prompt text, every rendered variable (domain/language guidance,
+    difficulty band, target length) AND ``n`` (the tool schema renders
+    ``minItems/maxItems: {{ n }}``). ``vars_hash`` captures the raw params.
+
+    Single source of truth: both ``generate_segments`` (recording a set)
+    and the pool-reuse check call this, so the recorded key and the
+    lookup key can never drift (R22). The extra render here is microseconds
+    next to the LLM call it gates.
+    """
+    variables = _template_variables(params)
+    rendered = render_template("generate_segments", variables)
+    template_hash = _hash_inputs(rendered.system, rendered.user)
+    vars_hash = _hash_inputs(
+        ",".join(sorted(params.topics)),
+        str(params.user_level),
+        params.duration,
+        params.direction,
+        params.current_context or "",
+    )
+    return template_hash, vars_hash
+
+
 def _domain_guidance(topics: tuple[str, ...], internal_max: int) -> str:
     """Per-domain framing overrides injected into the generation prompt.
 
@@ -232,16 +258,7 @@ def _mock_generation(params: GenerateParams) -> GenerationResult:
         )
         for i in range(params.n)
     )
-    variables = _template_variables(params)
-    rendered = render_template("generate_segments", variables)
-    template_hash = _hash_inputs(rendered.system, rendered.user)
-    vars_hash = _hash_inputs(
-        ",".join(sorted(params.topics)),
-        str(params.user_level),
-        params.duration,
-        params.direction,
-        params.current_context or "",
-    )
+    template_hash, vars_hash = compute_generation_keys(params)
     return GenerationResult(
         scenario_summary=scenario,
         segments=segs,
@@ -267,10 +284,7 @@ def generate_segments(params: GenerateParams) -> GenerationResult:
         log.info("generate_segments: USE_MOCKS=1, returning mock result")
         return _mock_generation(params)
     variables = _template_variables(params)
-    # M14 fix: run_template now returns `(result, rendered_call)` so we
-    # don't have to re-render the template a second time just to compute
-    # the prompt-version hash.
-    tool_out, rendered = run_template(
+    tool_out, _rendered = run_template(
         "generate_segments", variables, spend_kind="claude_generation"
     )
     raw_segments = tool_out.get("segments", [])
@@ -290,14 +304,7 @@ def generate_segments(params: GenerateParams) -> GenerationResult:
         )
         for s in cleaned
     )
-    template_hash = _hash_inputs(rendered.system, rendered.user)
-    vars_hash = _hash_inputs(
-        ",".join(sorted(params.topics)),
-        str(params.user_level),
-        params.duration,
-        params.direction,
-        params.current_context or "",
-    )
+    template_hash, vars_hash = compute_generation_keys(params)
     return GenerationResult(
         scenario_summary=str(tool_out.get("scenario_summary", "")),
         segments=segments,

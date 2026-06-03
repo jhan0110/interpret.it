@@ -20,7 +20,7 @@ import logging
 import os
 import secrets
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, NamedTuple
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import redis.asyncio as aioredis
@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ from app.engine.difficulty_ladder import (
 from app.engine.mastery_tier import append_score, evaluate_promotion
 from app.models.tables import (
     AttemptRow,
+    GeneratedSetRow,
+    LearnerSeenSetRow,
     LearnerVocabDeckRow,
     MasteryScoreRow,
     ParaphraseEmbeddingRow,
@@ -127,6 +130,10 @@ class SessionPlanRequest(BaseModel):
     session_id: UUID
     segment_ids: list[UUID]
     scenario_summary: str | None = None
+    # When present, the generated set being assigned. The gateway records
+    # it in the learner_seen_sets ledger in the SAME transaction that sets
+    # the plan, so a learner is never served the same set twice.
+    generated_set_id: UUID | None = None
 
 
 class SessionPlanResponse(BaseModel):
@@ -222,10 +229,169 @@ async def post_session_plan(body: SessionPlanRequest) -> SessionPlanResponse:
             raise HTTPException(status_code=404, detail="session not found")
         row.planned_segment_ids = [str(sid) for sid in body.segment_ids]
         row.generation_state = "ready"
+        # Mark the set seen for this learner in the SAME transaction, so the
+        # assign+ledger is atomic — no window where prompts are shown without
+        # being recorded (the no-repeat guarantee). on_conflict_do_nothing
+        # makes a re-assign of the same set idempotent.
+        if body.generated_set_id is not None:
+            await db.execute(
+                pg_insert(LearnerSeenSetRow)
+                .values(learner_id=row.learner_id, set_id=body.generated_set_id)
+                .on_conflict_do_nothing(index_elements=["learner_id", "set_id"])
+            )
         await db.commit()
     return SessionPlanResponse(
         session_id=body.session_id, count=len(body.segment_ids)
     )
+
+
+# ── Shared-pool reuse ───────────────────────────────────────────────────
+
+
+class PoolCandidate(NamedTuple):
+    set_id: UUID
+    segment_ids: list[str]
+    scenario_summary: str | None
+
+
+def _generated_set_uuid(segment_ids: list[str]) -> UUID:
+    """Deterministic id for a generated set: uuid5 over its SORTED segment
+    ids. Order-independent and stable, so re-recording the identical set
+    collapses to one row (idempotent)."""
+    joined = ":".join(sorted(segment_ids))
+    return uuid5(NAMESPACE_URL, f"generated_set:{joined}")
+
+
+def select_unseen_set(
+    candidates: list[PoolCandidate], seen_ids: set[UUID], n: int
+) -> PoolCandidate | None:
+    """Pure picker: first candidate the learner hasn't seen with >= n
+    segments. Candidates are pre-ordered newest-first by the caller.
+
+    Keeping this pure (no DB) lets the no-repeat + accumulation logic be
+    unit-tested without a Postgres fixture; the endpoint is thin glue.
+    """
+    for c in candidates:
+        if c.set_id in seen_ids:
+            continue
+        if len(c.segment_ids) < n:
+            continue
+        return c
+    return None
+
+
+_POOL_CANDIDATE_LIMIT = 50
+
+
+class SegmentPoolRequest(BaseModel):
+    template_hash: str
+    vars_hash: str
+    learner_id: UUID
+    count: int = Field(ge=1)
+
+
+class SegmentPoolResponse(BaseModel):
+    set_id: UUID
+    segment_ids: list[str]
+    scenario_summary: str | None = None
+
+
+@router.post("/segment_pool", dependencies=[Depends(verify_internal_token)])
+async def post_segment_pool(
+    body: SegmentPoolRequest,
+) -> SegmentPoolResponse | None:
+    """Read-only: return an unseen generated set matching the pool key, or null.
+
+    Two queries (no N+1): candidate sets matching both hashes (newest
+    first), and the learner's seen set ids. The pick is `select_unseen_set`.
+    Performs NO writes (R16).
+    """
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(GeneratedSetRow)
+                    .where(
+                        GeneratedSetRow.prompt_template_hash == body.template_hash,
+                        GeneratedSetRow.prompt_vars_hash == body.vars_hash,
+                    )
+                    .order_by(GeneratedSetRow.created_at.desc())
+                    .limit(_POOL_CANDIDATE_LIMIT)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            return None
+        seen_ids = set(
+            (
+                await db.execute(
+                    select(LearnerSeenSetRow.set_id).where(
+                        LearnerSeenSetRow.learner_id == body.learner_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    candidates = [
+        PoolCandidate(
+            set_id=r.id,
+            segment_ids=list(r.segment_ids),
+            scenario_summary=r.scenario_summary,
+        )
+        for r in rows
+    ]
+    chosen = select_unseen_set(candidates, seen_ids, body.count)
+    if chosen is None:
+        return None
+    return SegmentPoolResponse(
+        set_id=chosen.set_id,
+        segment_ids=chosen.segment_ids,
+        scenario_summary=chosen.scenario_summary,
+    )
+
+
+class GeneratedSetRequest(BaseModel):
+    template_hash: str
+    vars_hash: str
+    scenario_summary: str | None = None
+    segment_ids: list[str] = Field(min_length=1)
+
+
+class GeneratedSetResponse(BaseModel):
+    set_id: UUID
+
+
+@router.post(
+    "/generated_set",
+    response_model=GeneratedSetResponse,
+    dependencies=[Depends(verify_internal_token)],
+)
+async def post_generated_set(body: GeneratedSetRequest) -> GeneratedSetResponse:
+    """Record a freshly generated cohesive set for future reuse.
+
+    Idempotent: the set id is `uuid5` over the sorted segment_ids, so
+    re-recording the same set is a no-op (on-conflict).
+    """
+    set_id = _generated_set_uuid(body.segment_ids)
+    sm = sessionmaker_factory()
+    async with sm() as db:
+        await db.execute(
+            pg_insert(GeneratedSetRow)
+            .values(
+                id=set_id,
+                prompt_template_hash=body.template_hash,
+                prompt_vars_hash=body.vars_hash,
+                scenario_summary=body.scenario_summary,
+                segment_ids=body.segment_ids,
+            )
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
+        await db.commit()
+    return GeneratedSetResponse(set_id=set_id)
 
 
 class GenerationFailedRequest(BaseModel):

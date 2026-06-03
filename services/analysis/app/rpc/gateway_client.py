@@ -145,8 +145,13 @@ async def push_session_plan(
     session_id: str,
     segment_ids: list[str],
     scenario_summary: str | None = None,
+    generated_set_id: str | None = None,
 ) -> None:
     """Tell the gateway which segments to walk for this session.
+
+    When `generated_set_id` is set, the gateway also records the set in the
+    learner's seen-ledger in the SAME transaction — so a learner is never
+    served the same set twice (the no-repeat guarantee).
 
     Raises on non-2xx so the generation worker can fail loudly instead of
     silently dropping the session plan.
@@ -157,11 +162,67 @@ async def push_session_plan(
             "session_id": session_id,
             "segment_ids": segment_ids,
             "scenario_summary": scenario_summary,
+            "generated_set_id": generated_set_id,
         },
         headers=_rpc_headers(),
         timeout=10.0,
     )
     r.raise_for_status()
+
+
+async def query_segment_pool(
+    template_hash: str,
+    vars_hash: str,
+    learner_id: str,
+    count: int,
+) -> dict | None:
+    """Ask the gateway for an unseen generated set matching the pool key.
+
+    Returns `{"set_id", "segment_ids", "scenario_summary"}` on a hit, or
+    `None` when no unseen full set exists (the caller then generates fresh).
+    Read-only on the gateway side.
+    """
+    r = await _http().post(
+        f"{_GATEWAY_RPC_URL}/internal/segment_pool",
+        json={
+            "template_hash": template_hash,
+            "vars_hash": vars_hash,
+            "learner_id": learner_id,
+            "count": count,
+        },
+        headers=_rpc_headers(),
+        timeout=10.0,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return data or None
+
+
+async def push_generated_set(
+    template_hash: str,
+    vars_hash: str,
+    scenario_summary: str | None,
+    segment_ids: list[str],
+) -> str:
+    """Record a freshly generated cohesive set for future reuse.
+
+    Idempotent on the gateway (set id is deterministic from the segment
+    ids). Returns the set id so the caller can pass it to
+    `push_session_plan` and mark it seen for this learner.
+    """
+    r = await _http().post(
+        f"{_GATEWAY_RPC_URL}/internal/generated_set",
+        json={
+            "template_hash": template_hash,
+            "vars_hash": vars_hash,
+            "scenario_summary": scenario_summary,
+            "segment_ids": segment_ids,
+        },
+        headers=_rpc_headers(),
+        timeout=10.0,
+    )
+    r.raise_for_status()
+    return r.json()["set_id"]
 
 
 async def push_generation_failed(session_id: str, error: str) -> None:

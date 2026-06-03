@@ -25,20 +25,33 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
-from app.content.generate import GenerateParams, generate_segments
+from app.content.generate import (
+    GenerateParams,
+    compute_generation_keys,
+    generate_segments,
+)
 from app.embeddings import embed_texts
 from app.rpc.gateway_client import (
     publish_generation_event,
+    push_generated_set,
     push_generation_failed,
     push_segment_insert,
     push_session_plan,
+    query_segment_pool,
 )
 from app.tts.elevenlabs_tts import generate_segment_audio
 from app.content.durations import DURATION_BANDS
 
 log = logging.getLogger(__name__)
+
+
+def _pool_reuse_enabled() -> bool:
+    """Shared-pool reuse kill-switch. Default on ("1"); set
+    GENERATION_POOL_REUSE=0 to force every session to generate fresh."""
+    return os.getenv("GENERATION_POOL_REUSE", "1") == "1"
 
 
 def _coerce_params(payload: dict) -> GenerateParams:
@@ -92,6 +105,40 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
                 "state": "pending",
             }
         )
+
+        # ── Shared-pool reuse: if an unseen cohesive set already exists for
+        # this exact (prompt, params) key, serve it — no LLM/TTS/embeddings.
+        # The set is recorded against the learner's seen-ledger atomically
+        # with the plan, so they're never served the same set twice.
+        tmpl_hash, vars_hash = compute_generation_keys(params)
+        if _pool_reuse_enabled():
+            hit = await query_segment_pool(
+                tmpl_hash, vars_hash, learner_id, params.n
+            )
+            if hit:
+                reused_ids = [str(s) for s in hit["segment_ids"]]
+                await push_session_plan(
+                    session_id,
+                    reused_ids,
+                    hit.get("scenario_summary"),
+                    generated_set_id=hit["set_id"],
+                )
+                await publish_generation_event(
+                    {
+                        "type": "complete",
+                        "session_id": session_id,
+                        "count": len(reused_ids),
+                        "scenario_summary": hit.get("scenario_summary"),
+                        "segment_ids": reused_ids,
+                    }
+                )
+                log.info(
+                    "generation reused session=%s set=%s count=%d (no LLM)",
+                    session_id,
+                    hit["set_id"],
+                    len(reused_ids),
+                )
+                return {"ok": True, "count": len(reused_ids), "reused": True}
 
         result = generate_segments(params)
         segments = list(result.segments)
@@ -156,7 +203,17 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
 
         # All slots are guaranteed populated at this point; cast for mypy.
         final_ids: list[str] = [sid for sid in segment_ids if sid is not None]
-        await _push_planned_segments(session_id, final_ids, result.scenario_summary)
+        # Record the fresh set for future reuse, then assign it to this
+        # session AND mark it seen for the learner in one atomic call.
+        set_id = await push_generated_set(
+            tmpl_hash, vars_hash, result.scenario_summary, final_ids
+        )
+        await push_session_plan(
+            session_id,
+            final_ids,
+            result.scenario_summary,
+            generated_set_id=set_id,
+        )
         await publish_generation_event(
             {
                 "type": "complete",
@@ -189,10 +246,3 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
         )
         await push_generation_failed(session_id, str(exc))
         return {"ok": False, "error": str(exc)}
-
-
-async def _push_planned_segments(
-    session_id: str, segment_ids: list[str], scenario_summary: str
-) -> None:
-    """Tell the gateway which segments to walk for this session."""
-    await push_session_plan(session_id, segment_ids, scenario_summary)

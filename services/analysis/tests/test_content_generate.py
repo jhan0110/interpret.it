@@ -81,6 +81,36 @@ def test_direction_label_renders_chinese() -> None:
     assert _direction_label("zh-zh") == "Chinese"
 
 
+def test_generation_keys_stable_and_discriminating() -> None:
+    """Pool key (template_hash, vars_hash) must be deterministic and change
+    on every input that affects content — else a learner is served stale or
+    wrong material (R22)."""
+    from app.content.generate import compute_generation_keys
+
+    base = _params()
+    k = compute_generation_keys(base)
+    # Determinism (B4): identical params → identical key.
+    assert compute_generation_keys(_params()) == k
+    # Each param change shifts the key (B4).
+    assert compute_generation_keys(_params(topics=("diplomacy",))) != k
+    assert compute_generation_keys(_params(user_level=5)) != k
+    assert compute_generation_keys(_params(duration="short")) != k
+    assert compute_generation_keys(_params(direction="ko-en")) != k
+    assert compute_generation_keys(_params(current_context="today")) != k
+    # n is encoded via the rendered tool schema → template_hash shifts (B4).
+    assert compute_generation_keys(_params(n=7))[0] != compute_generation_keys(_params(n=8))[0]
+
+
+def test_generation_keys_track_prompt_guidance() -> None:
+    """A prompt-rendered change (medical civilian guidance) must shift the
+    template_hash so old military-framed sets can't be reused (B3/R22)."""
+    from app.content.generate import compute_generation_keys
+
+    medical = compute_generation_keys(_params(topics=("medical",)))[0]
+    logistics = compute_generation_keys(_params(topics=("logistics",)))[0]
+    assert medical != logistics
+
+
 def test_medical_domain_guidance_is_civilian() -> None:
     from app.content.generate import _domain_guidance
 
