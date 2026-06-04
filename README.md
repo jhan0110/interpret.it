@@ -2,7 +2,7 @@
 
 **Real-time interpretation training for high-stakes settings.**
 
-interpretIt is an audio-first practice platform for interpreters. You hear
+interpretIt (currently live at interpretit.duckdns.org) is an audio-first practice platform for interpreters. You hear
 a short spoken segment, interpret it aloud after a calibrated delay, and
 get layered feedback — first on *how* you spoke (pace, pauses, fillers,
 cognitive load), then on *what* you said (accuracy, omissions, register,
@@ -197,7 +197,7 @@ video accompany the submission.
 
 ### Process, integrity & disclosure
 
-- **AI usage (disclosed).** AI was used throughout, for both planning and
+- **AI usage disclosure** AI was used throughout, for both planning and
   implementation — primarily Claude (Anthropic) via an agentic coding
   workflow. Design decisions, trade-offs, and verification were directed
   and reviewed by the author.
@@ -209,7 +209,7 @@ video accompany the submission.
   PostgreSQL + pgvector, Redis/arq, MinIO, and Caddy.
 - **Evidence of effort over time.** The full public commit history documents
   the progression from scaffold to a deployed, optimized system.
-- **Major limitations (discussed honestly).** (1) **Latency** — generation
+- **Major limitations.** (1) **Latency** — generation
   is several sequential API calls; mitigated by the shared-pool reuse layer
   (identical-parameter sessions reuse prior output) and by running
   per-phrase grading in the background so the learner waits only for the
