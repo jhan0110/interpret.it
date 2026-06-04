@@ -38,6 +38,7 @@ def test_generate_segments_template_renders(tmp_path: Path) -> None:
     call = render_template(
         "generate_segments",
         {
+            "gen_model": "anthropic/claude-haiku-4-5",
             "n": 10,
             "topic_csv": "logistics",
             "topic_descriptions": ["supply, transport, sustainment"],

@@ -180,12 +180,25 @@ def _language_guidance(source_lang: str) -> str:
     return ""
 
 
+# Generation runs on a faster model than the default. Haiku 4.5 was
+# measured at ~2x Sonnet's generation speed (9.3s -> 4.3s) with cohesion,
+# difficulty laddering, conversational-Chinese, and civilian-medical
+# quality preserved across en/ko/zh. Override with GEN_MODEL to revert:
+# GEN_MODEL=anthropic/claude-sonnet-4-6.
+_DEFAULT_GEN_MODEL = "anthropic/claude-haiku-4-5"
+
+
+def _gen_model() -> str:
+    return os.getenv("GEN_MODEL", _DEFAULT_GEN_MODEL)
+
+
 def _template_variables(params: GenerateParams) -> dict:
     band = LEVEL_BANDS[params.user_level]
     duration_spec = DURATION_BANDS[params.duration]
     topic_csv = ", ".join(params.topics)
     src, tgt = params.direction.split("-")
     return {
+        "gen_model": _gen_model(),
         "domain_guidance": _domain_guidance(params.topics, band.internal_range[1]),
         "language_guidance": _language_guidance(src),
         "n": params.n,

@@ -81,6 +81,24 @@ def test_direction_label_renders_chinese() -> None:
     assert _direction_label("zh-zh") == "Chinese"
 
 
+def test_generation_model_defaults_to_haiku(monkeypatch) -> None:
+    from app.content.generate import _template_variables
+    from app.llm.templates import render_template
+
+    monkeypatch.delenv("GEN_MODEL", raising=False)
+    call = render_template("generate_segments", _template_variables(_params()))
+    assert call.model == "anthropic/claude-haiku-4-5"
+
+
+def test_generation_model_env_override(monkeypatch) -> None:
+    from app.content.generate import _template_variables
+    from app.llm.templates import render_template
+
+    monkeypatch.setenv("GEN_MODEL", "anthropic/claude-sonnet-4-6")
+    call = render_template("generate_segments", _template_variables(_params()))
+    assert call.model == "anthropic/claude-sonnet-4-6"
+
+
 def test_generation_keys_stable_and_discriminating() -> None:
     """Pool key (template_hash, vars_hash) must be deterministic and change
     on every input that affects content — else a learner is served stale or

@@ -1,5 +1,5 @@
 ---
-model: anthropic/claude-sonnet-4-6
+model: {{ gen_model }}
 temperature: 0.85
 max_tokens: 6000
 system: |
