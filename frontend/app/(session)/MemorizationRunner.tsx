@@ -528,8 +528,8 @@ export function MemorizationRunner({
   }
 
   function requestReplay() {
-    if (!currentAttemptId) return;
     if (replayedThisSegment) return;
+    if (!currentSegmentId) return;
     if (replaysRemaining <= 0) {
       showReplayDenied("budget_exhausted");
       return;
@@ -537,7 +537,13 @@ export function MemorizationRunner({
     const msg: WSReplayRequest = {
       type: "replay.request",
       ts: new Date().toISOString(),
-      payload: { session_id: sessionId, attempt_id: currentAttemptId },
+      // Replays happen during listening (before any attempt exists). The
+      // backend keys the replay budget by session+segment and only echoes
+      // attempt_id, so a placeholder is fine when there's no attempt yet.
+      payload: {
+        session_id: sessionId,
+        attempt_id: currentAttemptId ?? uuidv4(),
+      },
     };
     sendEnvelope(msg);
   }
@@ -567,12 +573,12 @@ export function MemorizationRunner({
   const delayFrac = delayMs > 0 ? 1 - remainingMs / delayMs : 1;
   const overallProgress = audioPhase ? audioFrac * 0.5 : 0.5 + delayFrac * 0.5;
 
-  const replayShown = state === "listening" || state === "recording";
+  // Replay is a LISTENING-phase re-hear only. Offering it during recording
+  // would sound the source while the learner is recalling from memory —
+  // the exact bug we're fixing. (Recall must be done in silence.)
+  const replayShown = state === "listening";
   const replayDisabled =
-    replayedThisSegment ||
-    replaysRemaining <= 0 ||
-    !currentAttemptId ||
-    (state !== "listening" && state !== "recording");
+    replayedThisSegment || replaysRemaining <= 0 || state !== "listening";
 
   return (
     <div className="flex w-full max-w-2xl flex-col items-center gap-8 p-8 text-center">
@@ -700,10 +706,10 @@ export function MemorizationRunner({
         {state === "feedback" && <span aria-hidden>✓</span>}
       </div>
 
-      {audioUrl && (state === "listening" || state === "recording") && (
+      {audioUrl && state === "listening" && (
         <audio
           key={audioUrl}
-          autoPlay={state === "listening"}
+          autoPlay
           controls={false}
           src={audioUrl}
           ref={(el) => {
