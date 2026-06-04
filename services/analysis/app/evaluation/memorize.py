@@ -18,6 +18,7 @@ from uuid import UUID
 
 from ..contracts.models import FollowupExercise, KeyPoint, SemanticResult
 from ..llm.client import structured_generate
+from .evaluate import _eval_model
 
 log = logging.getLogger(__name__)
 
@@ -326,6 +327,7 @@ Learner's recall ({source_lang}):
         system=system,
         user=user_message,
         tool=_EVAL_TOOL,
+        model=_eval_model(),
         max_tokens=2048,
     )
     claude_ms = int((time.monotonic() - t_claude) * 1000)

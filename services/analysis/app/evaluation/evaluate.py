@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from uuid import UUID
@@ -12,6 +13,18 @@ from ..llm.client import structured_generate
 from ..reference.generate import ReferenceBundle
 
 log = logging.getLogger(__name__)
+
+# Scoring runs on a faster model than reference/generation. Haiku 4.5 was
+# measured at ~2x Sonnet's eval speed (13.7s -> 6.1s median) with calibration
+# preserved across self-correction, near-perfect, major/moderate omission,
+# and register-slip cases — the difference that pulls the whole analysis
+# under 15s. Reference (the scoring anchor) stays on Sonnet. Override with
+# EVAL_MODEL to revert: EVAL_MODEL=anthropic/claude-sonnet-4-6.
+_DEFAULT_EVAL_MODEL = "anthropic/claude-haiku-4-5"
+
+
+def _eval_model() -> str:
+    return os.getenv("EVAL_MODEL", _DEFAULT_EVAL_MODEL)
 
 
 _EVAL_TOOL = {
@@ -255,6 +268,7 @@ Learner's interpretation ({target_lang}):
         system=system,
         user=user_message,
         tool=_EVAL_TOOL,
+        model=_eval_model(),
         max_tokens=2048,
     )
     claude_ms = int((time.monotonic() - t_claude) * 1000)
