@@ -1,0 +1,11 @@
+# Local secret-scanning guard. Enable once per clone:
+#   pip install pre-commit   # or: brew install pre-commit
+#   pre-commit install
+# Then gitleaks runs automatically on every `git commit`, scanning staged
+# changes and blocking the commit if a secret is detected. Update the
+# pinned version with `pre-commit autoupdate`.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks

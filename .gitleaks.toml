@@ -1,0 +1,20 @@
+# gitleaks config — extends the built-in rule set with an allowlist for
+# values that are already public in git history and deliberately accepted
+# (decision 2026-06-04: the throwaway demo basicauth gate is left as-is).
+# This keeps secret scanning green on history while still catching any NEW
+# secret (real API keys, etc.) in future commits.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Accepted, already-public demo-only values (not rotated by decision)."
+regexes = [
+  '''153peers''',
+  '''167\.172\.153\.228''',
+]
+# .env.example carries placeholder/empty values and documented bcrypt
+# hashes for illustration, not live secrets.
+paths = [
+  '''\.env\.example$''',
+]

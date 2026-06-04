@@ -1,0 +1,24 @@
+name: secret-scan
+
+# Scans pushes and PRs for committed secrets. Free for public repos and
+# personal accounts. The repo's .gitleaks.toml allowlists the accepted,
+# already-public demo values so this stays green while still catching any
+# new real secret.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
