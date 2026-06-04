@@ -109,7 +109,7 @@ _EVAL_TOOL = {
             },
             "feedback_text": {
                 "type": "string",
-                "description": "3-5 sentences naming what the learner recalled well and what they missed.",
+                "description": "3-5 sentences naming what the learner recalled well and what they missed. Written in English.",
             },
             "followup_exercise": {
                 "type": "object",
@@ -162,6 +162,11 @@ learner missed and praising what they captured. Recommend a follow-up that drill
 weakest unit.
 
 Source language: {source_lang}. Difficulty level: {difficulty_level}/10.
+
+Write all feedback prose (`feedback_text` and the follow-up `prompt_text`) in
+English, regardless of the source language. You may quote exact words from the
+source or the learner's response in their original language, but your
+explanatory and coaching prose must be in English.
 
 Respond only by calling the emit_memorization_evaluation tool.
 """

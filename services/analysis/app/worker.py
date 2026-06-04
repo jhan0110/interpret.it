@@ -34,6 +34,19 @@ from app.vocab.extract import run_vocab_extraction
 
 log = logging.getLogger(__name__)
 
+# arq workers have no logging config of their own, so the app's INFO-level
+# `[semantic.*]` / `[tts.*]` timing instrumentation was being swallowed at
+# the default WARNING root level — making analysis latency undiagnosable in
+# production. Attach a StreamHandler to the `app` logger at INFO (override
+# with LOG_LEVEL) so those breakdowns reach the container logs.
+_app_logger = logging.getLogger("app")
+if not _app_logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    _app_logger.addHandler(_h)
+    _app_logger.propagate = False
+_app_logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+
 _PER_ATTEMPT_TIMEOUT_S = 30
 _USE_MOCKS = os.getenv("USE_MOCKS") == "1"
 _REFERENCE_CACHE_TTL = 86400  # 24 hours

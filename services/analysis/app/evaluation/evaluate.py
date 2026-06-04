@@ -48,7 +48,7 @@ _EVAL_TOOL = {
                         "severity": {"type": "string", "enum": ["minor", "moderate", "critical"]},
                         "explanation": {
                             "type": "string",
-                            "description": "Clear pedagogical explanation of the error.",
+                            "description": "Clear pedagogical explanation of the error, written in English.",
                         },
                     },
                     "required": ["type", "source_span", "user_span", "severity", "explanation"],
@@ -62,7 +62,7 @@ _EVAL_TOOL = {
             },
             "feedback_text": {
                 "type": "string",
-                "description": "3-5 sentence pedagogical feedback addressing the most important issues.",
+                "description": "3-5 sentence pedagogical feedback addressing the most important issues. Written in English.",
             },
             "followup_exercise": {
                 "type": "object",
@@ -181,6 +181,14 @@ of supplemental imperfections; reserve critical-severity flags for high difficul
 
 Be pedagogically specific. Point to exact spans. Recommend a follow-up exercise
 that targets the most critical weakness.
+
+## Language of feedback
+
+Write ALL feedback prose in English — `feedback_text`, every error
+`explanation`, and the follow-up `prompt_text` — regardless of the source or
+target language of the exercise. You may quote exact words or spans from the
+source or the learner's interpretation in their original language, but every
+explanation and instruction you write must be in English.
 
 Respond only by calling the emit_evaluation tool.
 """
