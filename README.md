@@ -2,6 +2,33 @@
 
 **Real-time interpretation training for high-stakes settings.**
 
+## For peer reviewers
+
+The fastest way to try interpretIt is the **hosted demo — no setup, no API
+keys required.**
+
+1. **Open** → https://interpretit.duckdns.org
+2. **Site gate.** Your browser will show a basic-auth prompt. Enter:
+   - **Username:** `admin`
+   - **Password:** `153peers`
+3. **Log in.** On the login screen, click **"Use dev learner"**, then
+   **Continue**. This signs you in as a pre-seeded demo learner with a
+   raised daily quota — no UUID or sign-up needed.
+4. **Run a session.** From the home hub, pick a working language pair
+   (e.g. **EN ↔ KO** or **EN ↔ ZH**) → open **Interpretation Training** →
+   choose a topic, difficulty, and length → **Begin**. Allow microphone
+   access when prompted. You'll hear a segment, get a short pause, then
+   record your interpretation aloud; prosody + semantic feedback appear
+   after each attempt. **Memorization Practice** and the **Vocabulary
+   Deck** are also reachable from the hub.
+
+> Generation uses live models, so the first segment set takes a few seconds
+> to prepare (a progress bar shows status); repeat requests with identical
+> settings return instantly from the shared pool. Use headphones if you can,
+> and a quiet room helps the speech recognition.
+
+---
+
 interpretIt (currently live at [interpretit.duckdns.org](https://interpretit.duckdns.org)) is an audio-first practice platform for interpreters. You hear
 a short spoken segment, interpret it aloud after a calibrated delay, and
 get layered feedback — first on *how* you spoke (pace, pauses, fillers,
@@ -97,33 +124,6 @@ frontend:
 
 ---
 
-## For peer reviewers
-
-The fastest way to try interpretIt is the **hosted demo — no setup, no API
-keys required.**
-
-1. **Open** → https://interpretit.duckdns.org
-2. **Site gate.** Your browser will show a basic-auth prompt. Enter:
-   - **Username:** `admin`
-   - **Password:** `153peers`
-3. **Log in.** On the login screen, click **"Use dev learner"**, then
-   **Continue**. This signs you in as a pre-seeded demo learner with a
-   raised daily quota — no UUID or sign-up needed.
-4. **Run a session.** From the home hub, pick a working language pair
-   (e.g. **EN ↔ KO** or **EN ↔ ZH**) → open **Interpretation Training** →
-   choose a topic, difficulty, and length → **Begin**. Allow microphone
-   access when prompted. You'll hear a segment, get a short pause, then
-   record your interpretation aloud; prosody + semantic feedback appear
-   after each attempt. **Memorization Practice** and the **Vocabulary
-   Deck** are also reachable from the hub.
-
-> Generation uses live models, so the first segment set takes a few seconds
-> to prepare (a progress bar shows status); repeat requests with identical
-> settings return instantly from the shared pool. Use headphones if you can,
-> and a quiet room helps the speech recognition.
-
----
-
 ## Project writeup
 
 This section maps the project to the submission rubric.
@@ -216,11 +216,9 @@ partial-tolerant).
 
 ### Communication & presentation
 
-This README is written to be understood by someone outside the project: a
-plain-language overview, a "how it works" pipeline, an architecture table,
-and a reproducible **Getting started** guide (Docker Compose + `.env`
-template + mock mode). A live, gated demo and an accompanying walkthrough
-video accompany the submission.
+This README is geared towards anyone with any level of technical experience.
+The [demo video](https://drive.google.com/file/d/1VpinouZR8oMeD_Di1fkBinTgMm_uweoq/view?usp=share_link)
+presents the topics in a more straightforward, condensed, and simpler way.
 
 ### Process, integrity & disclosure
 
