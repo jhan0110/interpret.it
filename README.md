@@ -150,25 +150,42 @@ What was built is a complete, running system, not a prototype:
 
 ### Evaluation & evidence
 
-Validation came from three independent angles:
+Validation came from three independent angles.
 
-- **Expert / user feedback.** Feedback was collected from seven users with
-  direct interpreter experience — two former Korean Army interpreters, four
-  active interpreters at Cardinal Free Clinics, and one physician who
-  regularly works with Mandarin-speaking patients. Their responses drove
-  iteration on the feedback interface, grading criteria, and difficulty
-  calibration.
-- **Automated testing.** 152 tests across the gateway, analysis, and
-  front end, plus strict type-checking, run against the real code paths
-  (mocking only at external-API boundaries).
-- **Quantitative benchmarking & failure analysis.** Latency was measured
-  end-to-end on the live stack and optimized against explicit targets
-  (e.g. analysis ~28 s → ~9–12 s; generation ~18 s → ~12 s, repeat
-  sessions ~1 s). A model swap for scoring was **A/B-validated on a
-  five-case calibration set** to confirm scores stayed in their expected
-  bands before shipping. Real incidents were root-caused and fixed (e.g. a
-  142 s TTS stall traced from production logs to a missing request timeout,
-  then bounded and made partial-tolerant).
+**1. Structured feedback from expert users.** Seven users with direct
+interpreter experience — two former Korean Army interpreters, four active
+interpreters at Cardinal Free Clinics, and one physician who regularly works
+with Mandarin-speaking patients — ran real sessions and completed a survey.
+Languages exercised: Korean (×2) and Mandarin/Chinese (×4), one unspecified.
+
+| Survey dimension (n = 7) | Agreed or Strongly Agreed | Strongly Agreed |
+|--------------------------|:---:|:---:|
+| Easy to navigate and use | 7/7 (100%) | 4 |
+| Everything functioned (audio, analysis, feedback, full sessions) | 7/7 (100%) | 6 |
+| Prompts matched real on-the-job material | 7/7 (100%) | 6 |
+| Analysis sensible & score reflective of performance | 7/7 (100%) | 5 |
+| Would use it to train their interpretation skills | 7/7 (100%) | 5 |
+
+Every respondent agreed or strongly agreed on all five dimensions. Six of
+seven reported no issues; one hit a session **timeout that returned a
+prosody score but no semantic analysis** (the per-attempt analysis cap — a
+known failure mode). The most common request was **faster generation /
+feedback**, which directly motivated the latency optimization below; other
+suggestions included pinyin for Mandarin, score history / progress reports
+over time, and a clearer explanation of how difficulty affects feedback.
+
+**2. Automated testing.** 152 tests across the gateway (88), analysis (60),
+and front end (4), plus strict type-checking, run against the real code
+paths (mocking only at external-API boundaries).
+
+**3. Quantitative benchmarking & failure analysis.** Latency was measured
+end-to-end on the live stack and optimized against explicit targets
+(analysis ~28 s → ~9–12 s; generation ~18 s → ~12 s; repeat sessions ~1 s).
+A model swap for scoring was **A/B-validated on a five-case calibration
+set** to confirm scores stayed in their expected bands before shipping. Real
+incidents were root-caused and fixed (e.g. a 142 s TTS stall traced from
+production logs to a missing request timeout, then bounded and made
+partial-tolerant).
 
 ### Communication & presentation
 
