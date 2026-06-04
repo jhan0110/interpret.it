@@ -97,6 +97,33 @@ frontend:
 
 ---
 
+## For peer reviewers
+
+The fastest way to try interpretIt is the **hosted demo — no setup, no API
+keys required.**
+
+1. **Open** → https://interpretit.duckdns.org
+2. **Site gate.** Your browser will show a basic-auth prompt. Enter:
+   - **Username:** `admin`
+   - **Password:** `153peers`
+3. **Log in.** On the login screen, click **"Use dev learner"**, then
+   **Continue**. This signs you in as a pre-seeded demo learner with a
+   raised daily quota — no UUID or sign-up needed.
+4. **Run a session.** From the home hub, pick a working language pair
+   (e.g. **EN ↔ KO** or **EN ↔ ZH**) → open **Interpretation Training** →
+   choose a topic, difficulty, and length → **Begin**. Allow microphone
+   access when prompted. You'll hear a segment, get a short pause, then
+   record your interpretation aloud; prosody + semantic feedback appear
+   after each attempt. **Memorization Practice** and the **Vocabulary
+   Deck** are also reachable from the hub.
+
+> Generation uses live models, so the first segment set takes a few seconds
+> to prepare (a progress bar shows status); repeat requests with identical
+> settings return instantly from the shared pool. Use headphones if you can,
+> and a quiet room helps the speech recognition.
+
+---
+
 ## Project writeup
 
 This section maps the project to the submission rubric.
