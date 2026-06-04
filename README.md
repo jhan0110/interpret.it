@@ -2,7 +2,7 @@
 
 **Real-time interpretation training for high-stakes settings.**
 
-interpretIt (currently live at interpretit.duckdns.org) is an audio-first practice platform for interpreters. You hear
+interpretIt (currently live at [interpretit.duckdns.org](interpretit.duckdns.org)) is an audio-first practice platform for interpreters. You hear
 a short spoken segment, interpret it aloud after a calibrated delay, and
 get layered feedback — first on *how* you spoke (pace, pauses, fillers,
 cognitive load), then on *what* you said (accuracy, omissions, register,
