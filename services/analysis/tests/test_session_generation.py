@@ -77,6 +77,9 @@ class _Recorder:
             self.calls.setdefault("gen_set", []).append((args, kwargs))
             return "new-set-id"
 
+        async def gen_failed(*args, **kwargs):
+            self.calls.setdefault("gen_failed", []).append((args, kwargs))
+
         async def seg_insert(payload, **_kw):
             self._seg_counter += 1
             return {"segment_id": f"seg-{self._seg_counter}"}
@@ -90,6 +93,7 @@ class _Recorder:
         monkeypatch.setattr(sg, "publish_generation_event", publish)
         monkeypatch.setattr(sg, "push_session_plan", plan)
         monkeypatch.setattr(sg, "push_generated_set", gen_set)
+        monkeypatch.setattr(sg, "push_generation_failed", gen_failed)
         monkeypatch.setattr(sg, "push_segment_insert", seg_insert)
         monkeypatch.setattr(sg, "embed_texts", fake_embed)
         monkeypatch.setattr(sg, "generate_segment_audio", fake_tts)
@@ -177,6 +181,46 @@ def test_tts_retry_recovers_transient_failure(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(sg, "generate_segment_audio", flaky)
     out = asyncio.run(sg.run_generation({}, _payload(n=5)))
     assert out["ok"] is True and out["count"] == 5  # retry recovered the failure
+
+
+def test_partial_set_still_loads(monkeypatch: pytest.MonkeyPatch) -> None:
+    # One segment fails both TTS attempts -> the session still runs with the
+    # other 4, and the partial set is NOT cached for reuse.
+    monkeypatch.setenv("GENERATION_POOL_REUSE", "0")
+    rec = _Recorder(monkeypatch)
+    rec.stub_generate(_fresh_result(n=5))
+
+    def flaky(text, lang, **_kw):
+        if text == "phrase 2":
+            raise RuntimeError("permanent TTS stall on one segment")
+        return "audio-key"
+
+    monkeypatch.setattr(sg, "generate_segment_audio", flaky)
+    out = asyncio.run(sg.run_generation({}, _payload(n=5)))
+
+    assert out["ok"] is True
+    assert out["count"] == 4 and out["partial"] is True
+    assert "gen_set" not in rec.calls  # partial set not cached for reuse
+    _, plan_kwargs = rec.calls["plan"][0]
+    assert plan_kwargs.get("generated_set_id") is None  # not ledgered
+    assert len(rec.calls["plan"][0][0][1]) == 4  # plan has the 4 survivors
+
+
+def test_total_tts_wipeout_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # If every segment fails, there is nothing to serve -> clean failure.
+    monkeypatch.setenv("GENERATION_POOL_REUSE", "0")
+    rec = _Recorder(monkeypatch)
+    rec.stub_generate(_fresh_result(n=5))
+
+    def dead(text, lang, **_kw):
+        raise RuntimeError("all TTS dead")
+
+    monkeypatch.setattr(sg, "generate_segment_audio", dead)
+    out = asyncio.run(sg.run_generation({}, _payload(n=5)))
+
+    assert out["ok"] is False
+    assert "gen_failed" in rec.calls  # gen_state flipped to failed
+    assert "plan" not in rec.calls  # no plan pushed
 
 
 def test_flag_off_skips_pool(monkeypatch: pytest.MonkeyPatch) -> None:

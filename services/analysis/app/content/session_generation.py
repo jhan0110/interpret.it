@@ -158,14 +158,13 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
 
         sem = asyncio.Semaphore(_TTS_CONCURRENCY)
 
-        async def _tts(idx: int, seg) -> tuple[int, str]:
+        async def _tts(idx: int, seg) -> tuple[int, str | None]:
             async with sem:
                 # Hard per-segment deadline + one retry. A single stalled TTS
                 # provider response (seen at 142s) otherwise blocks the whole
-                # set — the session plan is pushed only once every segment is
-                # ready, so one slow call leaves the learner stuck at "N-1/N".
-                # The retry almost always lands in ~2s; if both fail the job
-                # fails cleanly (gen_state=failed) rather than hanging.
+                # set. The retry almost always lands in ~2s; if both fail we
+                # return None and the segment is dropped — the session still
+                # runs with whatever succeeded (only a total wipeout fails).
                 last_exc: Exception | None = None
                 for attempt in range(2):
                     try:
@@ -186,7 +185,8 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
                             attempt + 1, idx, exc,
                             "retrying" if attempt == 0 else "giving up",
                         )
-                raise RuntimeError(f"TTS failed for segment {idx}: {last_exc}")
+                log.error("TTS gave up for segment %d after retries: %s", idx, last_exc)
+                return idx, None
 
         tts_tasks = [
             asyncio.create_task(_tts(i, seg)) for i, seg in enumerate(segments)
@@ -200,6 +200,10 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
         completed = 0
         for fut in asyncio.as_completed(tts_tasks):
             idx, audio_key = await fut
+            if audio_key is None:
+                # This segment's TTS gave up; drop it and keep going so the
+                # rest of the set still loads.
+                continue
             seg = segments[idx]
             embedding_vec = embeddings[idx]
             insert_payload = {
@@ -227,19 +231,36 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
                 }
             )
 
-        # All slots are guaranteed populated at this point; cast for mypy.
+        # Segments that survived TTS (failures dropped), in story order.
         final_ids: list[str] = [sid for sid in segment_ids if sid is not None]
-        # Record the fresh set for future reuse, then assign it to this
-        # session AND mark it seen for the learner in one atomic call.
-        set_id = await push_generated_set(
-            tmpl_hash, vars_hash, result.scenario_summary, final_ids
-        )
-        await push_session_plan(
-            session_id,
-            final_ids,
-            result.scenario_summary,
-            generated_set_id=set_id,
-        )
+        if not final_ids:
+            # Total wipeout — nothing to serve. Fail cleanly via the handler.
+            raise RuntimeError("all segments failed TTS; nothing to serve")
+
+        is_complete = len(final_ids) == len(segments)
+        if is_complete:
+            # Full set: record it for cross-learner reuse, then assign +
+            # mark-seen atomically.
+            set_id = await push_generated_set(
+                tmpl_hash, vars_hash, result.scenario_summary, final_ids
+            )
+            await push_session_plan(
+                session_id,
+                final_ids,
+                result.scenario_summary,
+                generated_set_id=set_id,
+            )
+        else:
+            # Partial set: serve it to THIS learner but don't cache it for
+            # reuse (no generated_set / ledger) so future requests get a
+            # full fresh set rather than reusing an incomplete story.
+            log.warning(
+                "partial generation session=%s: serving %d/%d segments",
+                session_id, len(final_ids), len(segments),
+            )
+            await push_session_plan(
+                session_id, final_ids, result.scenario_summary
+            )
         await publish_generation_event(
             {
                 "type": "complete",
@@ -249,8 +270,11 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
                 "segment_ids": final_ids,
             }
         )
-        log.info("generation complete session=%s count=%d", session_id, len(final_ids))
-        return {"ok": True, "count": len(final_ids)}
+        log.info(
+            "generation complete session=%s count=%d (of %d requested)",
+            session_id, len(final_ids), len(segments),
+        )
+        return {"ok": True, "count": len(final_ids), "partial": not is_complete}
     except Exception as exc:  # noqa: BLE001
         log.exception("generation failed session=%s: %s", session_id, exc)
         # Two-pronged failure signal:
