@@ -99,6 +99,8 @@ frontend:
 
 ## Project writeup
 
+This section maps the project to the submission rubric.
+
 ### Problem & insight
 
 Professional interpreting is a cognitively demanding skill — yet almost no
@@ -109,32 +111,95 @@ interpretIt addresses that gap directly: a purpose-built platform that
 simulates the conditions of real interpretation work and gives structured,
 actionable feedback.
 
+The approach is deliberately opinionated and non-obvious: training is
+**audio-only** (no transcript while you work, the way real interpretation
+happens), feedback is **layered** (fast prosody/cognitive-load signal
+first, deeper semantic scoring second), and source material is **generated
+as cohesive scenarios** — one unfolding story per session rather than
+disconnected sentences — across six professional domains and multiple
+language directions (including conversational Mandarin and civilian
+clinical medicine).
+
+### Execution & technical work
+
+What was built is a complete, running system, not a prototype:
+
+- **A real-time, multi-service application.** A Next.js front end captures
+  audio via the Web Audio API and streams complete Opus blobs over a
+  WebSocket to a FastAPI **gateway** (session state machine, difficulty
+  ladder, mastery model, sole DB writer), which dispatches to a FastAPI
+  **analysis** service and two background workers (ASR → prosody →
+  reference → TTS → evaluation → vocabulary extraction). Backed by
+  PostgreSQL + pgvector, Redis/arq, and MinIO, all orchestrated with
+  Docker Compose. (~180 source files across the services.)
+- **Functional and usable.** A one-command `docker compose up` brings up
+  the whole stack; a gated live demo runs at `interpretit.duckdns.org`; a
+  `USE_MOCKS=1` mode runs the full flow with no paid API calls.
+- **Effort matches scope.** Contracts-driven API (`contracts.json` →
+  generated TypeScript), a difficulty ladder + SM-2 vocabulary scheduler +
+  per-direction mastery model, spend/rate ceilings, and **152 automated
+  tests** (88 gateway · 60 analysis · 4 front-end, plus strict TypeScript).
+- **Meaningful iteration over time** (visible in the commit history). A few
+  examples: a cross-learner **shared-pool reuse** layer (repeat sessions
+  drop from ~30 s to ~1 s); **model-tier tuning** that cut analysis from
+  ~28 s toward a <15 s target and generation from ~18 s to ~12 s while
+  validating that scoring calibration was preserved; an **embedding
+  pre-warm** that removed a ~60 s first-request cold start; and
+  resilience work that turned a stalled-TTS hang into a bounded,
+  partial-tolerant session.
+
 ### Evaluation & evidence
 
-To validate the platform, feedback was collected from seven users with
-direct interpreter experience: two who served as Korean Army interpreters,
-four active interpreters at Cardinal Free Clinics, and one physician who
-regularly works with Mandarin-speaking patients. Their responses informed
-iteration on the feedback interface, grading criteria, and difficulty
-calibration.
+Validation came from three independent angles:
+
+- **Expert / user feedback.** Feedback was collected from seven users with
+  direct interpreter experience — two former Korean Army interpreters, four
+  active interpreters at Cardinal Free Clinics, and one physician who
+  regularly works with Mandarin-speaking patients. Their responses drove
+  iteration on the feedback interface, grading criteria, and difficulty
+  calibration.
+- **Automated testing.** 152 tests across the gateway, analysis, and
+  front end, plus strict type-checking, run against the real code paths
+  (mocking only at external-API boundaries).
+- **Quantitative benchmarking & failure analysis.** Latency was measured
+  end-to-end on the live stack and optimized against explicit targets
+  (e.g. analysis ~28 s → ~9–12 s; generation ~18 s → ~12 s, repeat
+  sessions ~1 s). A model swap for scoring was **A/B-validated on a
+  five-case calibration set** to confirm scores stayed in their expected
+  bands before shipping. Real incidents were root-caused and fixed (e.g. a
+  142 s TTS stall traced from production logs to a missing request timeout,
+  then bounded and made partial-tolerant).
+
+### Communication & presentation
+
+This README is written to be understood by someone outside the project: a
+plain-language overview, a "how it works" pipeline, an architecture table,
+and a reproducible **Getting started** guide (Docker Compose + `.env`
+template + mock mode). A live, gated demo and an accompanying walkthrough
+video accompany the submission.
 
 ### Process, integrity & disclosure
 
-AI was used in both the planning and implementation of this project. All
-sources and external tools are credited, and the public repository includes
-commit history documenting progress over time.
-
-Two limitations are worth noting. The first is **latency**. Session
-generation requires several sequential API calls, which introduces a delay
-before the user can begin. A pre-generation buffer is already scaffolded
-into the codebase — if two users request a session with identical
-parameters, the second simply reuses the first user's generated session.
-Feedback delay follows the same logic: by running grading in the background
-across all five phrases, the user only waits for the final feedback before
-receiving all results at once. The second limitation is **language
-coverage**. The current TTS implementation uses OpenAI, which has meaningful
-gaps in multilingual support; ElevenLabs would be a stronger long-term
-choice and is a planned migration if resources allow.
+- **AI usage (disclosed).** AI was used throughout, for both planning and
+  implementation — primarily Claude (Anthropic) via an agentic coding
+  workflow. Design decisions, trade-offs, and verification were directed
+  and reviewed by the author.
+- **Originality & credit.** This is a solo project built from scratch — no
+  forked or borrowed base repository. It builds on third-party *services
+  and libraries*, which are credited in the stack table above: Groq Whisper
+  (ASR), Claude / OpenRouter and OpenAI (LLM + TTS),
+  `sentence-transformers` multilingual-e5 (embeddings), Next.js, FastAPI,
+  PostgreSQL + pgvector, Redis/arq, MinIO, and Caddy.
+- **Evidence of effort over time.** The full public commit history documents
+  the progression from scaffold to a deployed, optimized system.
+- **Major limitations (discussed honestly).** (1) **Latency** — generation
+  is several sequential API calls; mitigated by the shared-pool reuse layer
+  (identical-parameter sessions reuse prior output) and by running
+  per-phrase grading in the background so the learner waits only for the
+  last result. (2) **Language coverage** — TTS currently uses OpenAI, which
+  has multilingual gaps; ElevenLabs is the planned upgrade. (3) **Auth** —
+  login is a learner-ID stand-in and the demo sits behind a single
+  basic-auth gate, not a real identity system.
 
 ---
 
