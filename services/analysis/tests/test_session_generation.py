@@ -160,6 +160,25 @@ def test_miss_generates_and_records_set(monkeypatch: pytest.MonkeyPatch) -> None
 # ── B9: flag off — never queries the pool, always generates ─────────────
 
 
+def test_tts_retry_recovers_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A single stalled/failed TTS call must not sink the whole set — the
+    # per-segment retry should recover it (the 142s-hang incident).
+    monkeypatch.setenv("GENERATION_POOL_REUSE", "0")
+    rec = _Recorder(monkeypatch)
+    rec.stub_generate(_fresh_result(n=5))
+    calls = {"n": 0}
+
+    def flaky(text, lang, **_kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated TTS stall")
+        return "audio-key"
+
+    monkeypatch.setattr(sg, "generate_segment_audio", flaky)
+    out = asyncio.run(sg.run_generation({}, _payload(n=5)))
+    assert out["ok"] is True and out["count"] == 5  # retry recovered the failure
+
+
 def test_flag_off_skips_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GENERATION_POOL_REUSE", "0")
     rec = _Recorder(monkeypatch)

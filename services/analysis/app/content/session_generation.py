@@ -73,6 +73,10 @@ def _coerce_params(payload: dict) -> GenerateParams:
 # lower it if a future provider has tighter RPS.
 _TTS_CONCURRENCY = 8
 
+# Hard ceiling per TTS call. Normal calls are ~2s; this caps a stalled
+# provider response (one was observed at 142s) so it can't block the set.
+_TTS_CALL_TIMEOUT_S = int(os.getenv("TTS_CALL_TIMEOUT_S", "25"))
+
 
 async def run_generation(_ctx: dict, payload: dict) -> dict:
     """arq entrypoint. `payload` is the dict pushed by gateway.enqueue_generation.
@@ -156,13 +160,33 @@ async def run_generation(_ctx: dict, payload: dict) -> dict:
 
         async def _tts(idx: int, seg) -> tuple[int, str]:
             async with sem:
-                key = await asyncio.to_thread(
-                    generate_segment_audio,
-                    seg.source_text,
-                    seg.source_lang,
-                    target_seconds=duration_spec.target_seconds,
-                )
-                return idx, key
+                # Hard per-segment deadline + one retry. A single stalled TTS
+                # provider response (seen at 142s) otherwise blocks the whole
+                # set — the session plan is pushed only once every segment is
+                # ready, so one slow call leaves the learner stuck at "N-1/N".
+                # The retry almost always lands in ~2s; if both fail the job
+                # fails cleanly (gen_state=failed) rather than hanging.
+                last_exc: Exception | None = None
+                for attempt in range(2):
+                    try:
+                        key = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                generate_segment_audio,
+                                seg.source_text,
+                                seg.source_lang,
+                                target_seconds=duration_spec.target_seconds,
+                            ),
+                            timeout=_TTS_CALL_TIMEOUT_S,
+                        )
+                        return idx, key
+                    except (asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+                        last_exc = exc
+                        log.warning(
+                            "TTS attempt %d for segment %d failed (%s); %s",
+                            attempt + 1, idx, exc,
+                            "retrying" if attempt == 0 else "giving up",
+                        )
+                raise RuntimeError(f"TTS failed for segment {idx}: {last_exc}")
 
         tts_tasks = [
             asyncio.create_task(_tts(i, seg)) for i, seg in enumerate(segments)

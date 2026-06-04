@@ -173,7 +173,17 @@ def _real_tts_openai(text: str, voice: str) -> bytes:
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY (or OPENAI_API_KEY) required for openai TTS")
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    # Bound the request so a stalled stream can't run for minutes (one was
+    # observed at 142s with the SDK's 600s default). read = max gap between
+    # streamed chunks; the worker also enforces a hard per-segment deadline.
+    import httpx
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=httpx.Timeout(30.0, connect=10.0),
+        max_retries=1,
+    )
     model = os.environ.get("OPENAI_TTS_MODEL", "openai/gpt-audio-mini")
     log.info("[tts.openai.begin] model=%s voice=%s text_len=%d", model, voice, len(text))
     t0 = time.monotonic()
