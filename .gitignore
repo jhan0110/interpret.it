@@ -20,10 +20,33 @@ node_modules/
 
 # Env / secrets
 .env
-.env.local
+.env*.local
 .env.bak
+.env.*
+!.env.example
 *.pem
 *.key
+*.crt
+*credentials*
+*secret*
+
+# Dev / agent tooling — local-only, never publish
+.claude/
+.cursor/
+.vscode/
+.idea/
+CLAUDE.md
+**/CLAUDE.md
+AGENTS.md
+**/AGENTS.md
+ANTI_BUG_PROTOCOL.md
+HANDOFF.md
+ARCHITECTURE.md
+REVIEW_FINDINGS.md
+FIX_PLAN.md
+POTENTIAL_RISKS.md
+demo_script.md
+docs/PHASE*_NOTES.md
 
 # Misc
 *.tmp
